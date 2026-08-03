@@ -206,11 +206,29 @@ lazy val airstream = crossProject(JSPlatform, NativePlatform)
     // These two generated traits are the only place Airstream names app.tulz, which publishes no Scala Native build.
     // Excluding the files is preferable to excluding the generator: the shared source tree stays identical across
     // platforms, and what Native is missing is one named, findable pair rather than a build-file condition.
-    // Filtering the final source list rather than unmanagedSources: these files are produced by a generator, so they
-    // arrive as managed sources and an unmanaged exclude filter never sees them.
+    // Native compiles what has been ported, and nothing else yet.
+    //
+    // The port cannot be validated any other way round: a spec for the platform layer can only run once its whole source
+    // set compiles, and the rest of Airstream still names scala.scalajs and com.raquo.ew. Rather than wait until the last
+    // file is done to run the first test, Native is given an explicit allowlist of ported packages.
+    //
+    // This list grows as packages are ported and is therefore the honest progress marker: what is not in it does not build
+    // on Native yet. When it covers everything, the filter goes away.
+    //
+    // app.tulz publishes no Native build, so the two generated traits that import it stay out regardless.
     Compile / sources := {
+      val portedPackages  = Seq("/com/raquo/airstream/platform/")
       val tuplezDependent = Set("CombineStreamOps.scala", "CombineSignalOps.scala")
-      (Compile / sources).value.filterNot(candidate => tuplezDependent.contains(candidate.getName))
+      (Compile / sources).value.filter { candidate =>
+        val path = candidate.getAbsolutePath.replace('\\', '/')
+        portedPackages.exists(path.contains) && !tuplezDependent.contains(candidate.getName)
+      }
+    },
+    Test / sources := {
+      val portedPackages = Seq("/com/raquo/airstream/platform/")
+      (Test / sources).value.filter { candidate =>
+        portedPackages.exists(candidate.getAbsolutePath.replace('\\', '/').contains)
+      }
     }
   )
 
