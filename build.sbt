@@ -1,7 +1,19 @@
 import com.raquo.buildkit.SourceDownloader
 import VersionHelper.{versionFmt, fallbackVersion}
+import sbtcrossproject.CrossPlugin.autoImport.{crossProject, CrossType}
+import scalajscrossproject.ScalaJSCrossPlugin.autoImport.JSPlatform
+import scalanativecrossproject.ScalaNativeCrossPlugin.autoImport.NativePlatform
 
-enablePlugins(ScalaJSPlugin)
+// Airstream cross-builds for Scala.js and Scala Native.
+//
+// CrossType.Pure is deliberate: the shared sources stay exactly where they have always been, in src/, and the
+// platform-specific ones live in .js/ and .native/. The source tree is therefore untouched by the port, and the whole
+// change is this one file — which is what a reviewer needs in order to read it as "a platform abstraction was introduced"
+// rather than "somebody rewrote the core".
+//
+// The JavaScript build must come out identical. Everything JS-specific — scalajs-dom, ew, the jsdom test environment, the
+// main-module initializer, MiMa, the CI source mapping — moved into jsSettings rather than being deleted or made
+// conditional on a platform check in shared code.
 
 lazy val preload = taskKey[Unit]("runs Airstream-specific pre-load tasks")
 
@@ -23,16 +35,6 @@ Global / onLoad := {
   (Global / onLoad).value andThen { state => preload.key.label :: state }
 }
 
-mimaPreviousArtifacts := Set("com.raquo" %%% "airstream" % "17.2.0")
-
-
-libraryDependencies ++= Seq(
-  "org.scala-js" %%% "scalajs-dom" % Versions.ScalaJsDom,
-  "app.tulz" %%% "tuplez-full" % Versions.Tuplez,
-  "com.raquo" %%% "ew" % Versions.Ew,
-  "org.scalatest" %%% "scalatest" % Versions.ScalaTest % Test
-)
-
 // Replace default sbt-dynver version with a simpler one for easier local development
 // ThisBuild / version ~= (_.replaceFirst("(\\+[a-z0-9-+]*-SNAPSHOT)", "-NEXT"))
 
@@ -47,134 +49,170 @@ ThisBuild / dynver := {
     .mkVersion(out => versionFmt(out, dynverSonatypeSnapshots.value), fallbackVersion(d))
 }
 
-scalaVersion := Versions.Scala_3
-
-crossScalaVersions := Seq(Versions.Scala_2_13, Versions.Scala_3)
-
-scalacOptions ++= Seq(
-  "-feature",
-  "-deprecation",
-  "-language:higherKinds",
-  "-language:implicitConversions",
-)
-
-scalacOptions ~= { options: Seq[String] =>
-  options.filterNot(Set(
-    "-Ywarn-value-discard",
-    "-Wvalue-discard"
-  ))
-}
-
-scalacOptions ++= sys.env.get("CI").map { _ =>
-  val localSourcesPath = (LocalRootProject / baseDirectory).value.toURI
-  val remoteSourcesPath = s"https://raw.githubusercontent.com/raquo/Airstream/${git.gitHeadCommit.value.get}/"
-  val sourcesOptionName = if (scalaVersion.value.startsWith("2.")) "-P:scalajs:mapSourceURI" else "-scalajs-mapSourceURI"
-
-  s"${sourcesOptionName}:$localSourcesPath->$remoteSourcesPath"
-}
-
-(Test / scalacOptions) ~= { options: Seq[String] =>
-  options.filterNot { o =>
-    o.startsWith("-Ywarn-unused") || o.startsWith("-Wunused")
-  }
-}
-
-// (Compile / scalacOptions) ~= (_.filterNot(Set(
-//   "-deprecation",
-//   "-Xfatal-warnings"
-// )))
-
-(Compile / doc / scalacOptions) ~= (_.filterNot(
-  Set(
-    "-deprecation",
-    "-explain-types",
-    "-explain",
-    "-feature",
-    "-language:existentials,experimental.macros,higherKinds,implicitConversions",
-    "-unchecked",
-    "-Xfatal-warnings",
-    "-Ykind-projector",
-    "-from-tasty",
-    "-encoding",
-    "utf8",
-  )
-))
-
-(Compile / doc / scalacOptions) ++= Seq(
-  "-no-link-warnings" // Suppress scaladoc "Could not find any member to link for" warnings
-)
-
-jsEnv := new org.scalajs.jsenv.jsdomnodejs.JSDOMNodeJSEnv()
-
-(Test / parallelExecution) := false
-
-scalaJSUseMainModuleInitializer := true
-
+ThisBuild / scalaVersion := Versions.Scala_3
 
 // -- Code generators for N-arity functionality
 
 val generateTupleCombinatorsFrom = 2
 val generateTupleCombinatorsTo = 22
 
-Compile / sourceGenerators += Def.task {
-  Seq.concat(
-    GenerateTupleStreams(
-      classNamePattern = n => s"TupleStream$n",
-      fileName = "TupleStreams.scala",
-      sourceDir = (Compile / sourceDirectory).value,
-      from = generateTupleCombinatorsFrom,
-      to = generateTupleCombinatorsTo
-    ).run,
-    GenerateTupleSignals(
-      classNamePattern = n => s"TupleSignal$n",
-      fileName = "TupleSignals.scala",
-      sourceDir = (Compile / sourceDirectory).value,
-      from = generateTupleCombinatorsFrom,
-      to = generateTupleCombinatorsTo
-    ).run,
-    GenerateCombineStreamOps(
-      traitName = "CombineStreamOps",
-      sourceDir = (Compile / sourceDirectory).value,
-      from = generateTupleCombinatorsFrom,
-      to = generateTupleCombinatorsTo
-    ).run,
-    GenerateCombineSignalOps(
-      traitName = "CombineSignalOps",
-      sourceDir = (Compile / sourceDirectory).value,
-      from = generateTupleCombinatorsFrom,
-      to = generateTupleCombinatorsTo
-    ).run,
-    GenerateCombineStreamObjectOps(
-      traitName = "CombineStreamObjectOps",
-      sourceDir = (Compile / sourceDirectory).value,
-      from = generateTupleCombinatorsFrom,
-      to = generateTupleCombinatorsTo
-    ).run,
-    GenerateCombineSignalObjectOps(
-      traitName = "CombineSignalObjectOps",
-      sourceDir = (Compile / sourceDirectory).value,
-      from = generateTupleCombinatorsFrom,
-      to = generateTupleCombinatorsTo
-    ).run
-  )
-}.taskValue
+/** Generators every platform needs: nothing they emit reaches beyond the standard library. */
+def platformNeutralGenerators(sourceDir: File): Seq[File] = Seq.concat(
+  GenerateTupleStreams(
+    classNamePattern = n => s"TupleStream$n",
+    fileName = "TupleStreams.scala",
+    sourceDir = sourceDir,
+    from = generateTupleCombinatorsFrom,
+    to = generateTupleCombinatorsTo
+  ).run,
+  GenerateTupleSignals(
+    classNamePattern = n => s"TupleSignal$n",
+    fileName = "TupleSignals.scala",
+    sourceDir = sourceDir,
+    from = generateTupleCombinatorsFrom,
+    to = generateTupleCombinatorsTo
+  ).run,
+  GenerateCombineStreamObjectOps(
+    traitName = "CombineStreamObjectOps",
+    sourceDir = sourceDir,
+    from = generateTupleCombinatorsFrom,
+    to = generateTupleCombinatorsTo
+  ).run,
+  GenerateCombineSignalObjectOps(
+    traitName = "CombineSignalObjectOps",
+    sourceDir = sourceDir,
+    from = generateTupleCombinatorsFrom,
+    to = generateTupleCombinatorsTo
+  ).run
+)
 
-Test / sourceGenerators += Def.task {
-  Seq.concat(
-    GenerateCombineSignalsTest(
-      className = "CombineSignalsSpec",
-      testSourceDir = (Test / sourceDirectory).value,
-      from = generateTupleCombinatorsFrom,
-      to = generateTupleCombinatorsTo
-    ).run,
-    GenerateCombineStreamsTest(
-      className = "CombineStreamsSpec",
-      testSourceDir = (Test / sourceDirectory).value,
-      from = generateTupleCombinatorsFrom,
-      to = generateTupleCombinatorsTo
-    ).run
+/** The two generated files that import app.tulz.
+  *
+  * Kept apart because tuplez publishes no Scala Native build. These two are the exact and only cost of that gap, which is
+  * what makes restoring them a follow-up rather than a blocker for the rest of the port.
+  */
+def tuplezGenerators(sourceDir: File): Seq[File] = Seq.concat(
+  GenerateCombineStreamOps(
+    traitName = "CombineStreamOps",
+    sourceDir = sourceDir,
+    from = generateTupleCombinatorsFrom,
+    to = generateTupleCombinatorsTo
+  ).run,
+  GenerateCombineSignalOps(
+    traitName = "CombineSignalOps",
+    sourceDir = sourceDir,
+    from = generateTupleCombinatorsFrom,
+    to = generateTupleCombinatorsTo
+  ).run
+)
+
+lazy val root = project
+  .in(file("."))
+  .aggregate(airstream.js, airstream.native)
+  .settings(
+    name := "airstream-root",
+    publish / skip := true
   )
-}.taskValue
+
+lazy val airstream = crossProject(JSPlatform, NativePlatform)
+  .crossType(CrossType.Pure)
+  .in(file("."))
+  .settings(
+    name := "airstream",
+    crossScalaVersions := Seq(Versions.Scala_2_13, Versions.Scala_3),
+    libraryDependencies += "org.scalatest" %%% "scalatest" % Versions.ScalaTest % Test,
+    scalacOptions ++= Seq(
+      "-feature",
+      "-deprecation",
+      "-language:higherKinds",
+      "-language:implicitConversions",
+    ),
+    scalacOptions ~= { options: Seq[String] =>
+      options.filterNot(Set(
+        "-Ywarn-value-discard",
+        "-Wvalue-discard"
+      ))
+    },
+    (Test / scalacOptions) ~= { options: Seq[String] =>
+      options.filterNot { o =>
+        o.startsWith("-Ywarn-unused") || o.startsWith("-Wunused")
+      }
+    },
+    (Compile / doc / scalacOptions) ~= (_.filterNot(
+      Set(
+        "-deprecation",
+        "-explain-types",
+        "-explain",
+        "-feature",
+        "-language:existentials,experimental.macros,higherKinds,implicitConversions",
+        "-unchecked",
+        "-Xfatal-warnings",
+        "-Ykind-projector",
+        "-from-tasty",
+        "-encoding",
+        "utf8",
+      )
+    )),
+    (Compile / doc / scalacOptions) ++= Seq(
+      "-no-link-warnings" // Suppress scaladoc "Could not find any member to link for" warnings
+    ),
+    (Test / parallelExecution) := false,
+    // The generators write into the SHARED src/main, exactly where they wrote before the cross-build existed. Pointing
+    // them at each platform's own source directory instead would emit two copies of every generated trait and the
+    // compiler would rightly refuse them as duplicate definitions.
+    Compile / sourceGenerators += Def.task {
+      platformNeutralGenerators((ThisBuild / baseDirectory).value / "src" / "main") ++
+        tuplezGenerators((ThisBuild / baseDirectory).value / "src" / "main")
+    }.taskValue,
+    // Same reasoning as the main generators above: the shared src/test is the one place these belong, or each platform
+    // emits its own copy of the same spec class and the compiler refuses both.
+    Test / sourceGenerators += Def.task {
+      Seq.concat(
+        GenerateCombineSignalsTest(
+          className = "CombineSignalsSpec",
+          testSourceDir = (ThisBuild / baseDirectory).value / "src" / "test",
+          from = generateTupleCombinatorsFrom,
+          to = generateTupleCombinatorsTo
+        ).run,
+        GenerateCombineStreamsTest(
+          className = "CombineStreamsSpec",
+          testSourceDir = (ThisBuild / baseDirectory).value / "src" / "test",
+          from = generateTupleCombinatorsFrom,
+          to = generateTupleCombinatorsTo
+        ).run
+      )
+    }.taskValue
+  )
+  .jsSettings(
+    libraryDependencies ++= Seq(
+      "org.scala-js" %%% "scalajs-dom" % Versions.ScalaJsDom,
+      "app.tulz" %%% "tuplez-full" % Versions.Tuplez,
+      "com.raquo" %%% "ew" % Versions.Ew
+    ),
+    mimaPreviousArtifacts := Set("com.raquo" %%% "airstream" % "17.2.0"),
+    jsEnv := new org.scalajs.jsenv.jsdomnodejs.JSDOMNodeJSEnv(),
+    scalaJSUseMainModuleInitializer := true,
+    scalacOptions ++= sys.env.get("CI").map { _ =>
+      val localSourcesPath = (LocalRootProject / baseDirectory).value.toURI
+      val remoteSourcesPath = s"https://raw.githubusercontent.com/raquo/Airstream/${git.gitHeadCommit.value.get}/"
+      val sourcesOptionName = if (scalaVersion.value.startsWith("2.")) "-P:scalajs:mapSourceURI" else "-scalajs-mapSourceURI"
+
+      s"${sourcesOptionName}:$localSourcesPath->$remoteSourcesPath"
+    }
+  )
+  .nativeSettings(
+    // No MiMa here: there is no previously published Native artifact to compare against.
+    //
+    // These two generated traits are the only place Airstream names app.tulz, which publishes no Scala Native build.
+    // Excluding the files is preferable to excluding the generator: the shared source tree stays identical across
+    // platforms, and what Native is missing is one named, findable pair rather than a build-file condition.
+    // Filtering the final source list rather than unmanagedSources: these files are produced by a generator, so they
+    // arrive as managed sources and an unmanaged exclude filter never sees them.
+    Compile / sources := {
+      val tuplezDependent = Set("CombineStreamOps.scala", "CombineSignalOps.scala")
+      (Compile / sources).value.filterNot(candidate => tuplezDependent.contains(candidate.getName))
+    }
+  )
 
 // https://github.com/JetBrains/sbt-ide-settings
 SettingKey[Seq[File]]("ide-excluded-directories").withRank(KeyRanks.Invisible) := Seq(
