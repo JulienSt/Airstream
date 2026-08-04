@@ -25,6 +25,10 @@ object DevTools {
   /** Report something that did break. */
   def error(message: String): Unit = sink(DiagnosticLevel.Error, message, ())
 
+  /** Report a failure that happened while formatting another error, without bypassing the installed destination. */
+  def consoleErrorCallbackFailed(err: Throwable): Unit =
+    sink(DiagnosticLevel.Error, "Error in AirstreamError.consoleErrorCallback:", err)
+
   /** Send diagnostics somewhere other than the default from now on. */
   def setSink(destination: (DiagnosticLevel, String, Any) => Unit): Unit = sink = destination
 

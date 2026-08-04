@@ -1,5 +1,5 @@
+import VersionHelper.{fallbackVersion, versionFmt}
 import com.raquo.buildkit.SourceDownloader
-import VersionHelper.{versionFmt, fallbackVersion}
 import sbtcrossproject.CrossPlugin.autoImport.{crossProject, CrossType}
 import scalajscrossproject.ScalaJSCrossPlugin.autoImport.JSPlatform
 import scalanativecrossproject.ScalaNativeCrossPlugin.autoImport.NativePlatform
@@ -17,6 +17,9 @@ import scalanativecrossproject.ScalaNativeCrossPlugin.autoImport.NativePlatform
 
 lazy val preload = taskKey[Unit]("runs Airstream-specific pre-load tasks")
 
+lazy val nativeTestExclusionReasons =
+  settingKey[Map[String, String]]("Native-incompatible test sources and the reviewable reason for each exclusion")
+
 preload := {
   val projectDir = (ThisBuild / baseDirectory).value
   // TODO Move code generators here as well?
@@ -32,7 +35,14 @@ preload := {
 }
 
 Global / onLoad := {
-  (Global / onLoad).value andThen { state => preload.key.label :: state }
+  val previous = (Global / onLoad).value
+  previous.andThen { state =>
+    val extracted = Project.extract(state)
+    extracted.getOpt(preload) match {
+      case Some(_) => extracted.runTask(preload, state)._1
+      case None => state
+    }
+  }
 }
 
 // Replace default sbt-dynver version with a simpler one for easier local development
@@ -120,7 +130,10 @@ lazy val airstream = crossProject(JSPlatform, NativePlatform)
   .settings(
     name := "airstream",
     crossScalaVersions := Seq(Versions.Scala_2_13, Versions.Scala_3),
-    libraryDependencies += "org.scalatest" %%% "scalatest" % Versions.ScalaTest % Test,
+    libraryDependencies ++= Seq(
+      "org.scalatest" %%% "scalatest" % Versions.ScalaTest % Test,
+      "org.scalacheck" %%% "scalacheck" % Versions.ScalaCheck % Test
+    ),
     scalacOptions ++= Seq(
       "-feature",
       "-deprecation",
@@ -201,34 +214,35 @@ lazy val airstream = crossProject(JSPlatform, NativePlatform)
     }
   )
   .nativeSettings(
+    crossScalaVersions := Seq(Versions.Scala_3),
     // No MiMa here: there is no previously published Native artifact to compare against.
-    //
-    // These two generated traits are the only place Airstream names app.tulz, which publishes no Scala Native build.
-    // Excluding the files is preferable to excluding the generator: the shared source tree stays identical across
-    // platforms, and what Native is missing is one named, findable pair rather than a build-file condition.
-    // Native compiles what has been ported, and nothing else yet.
-    //
-    // The port cannot be validated any other way round: a spec for the platform layer can only run once its whole source
-    // set compiles, and the rest of Airstream still names scala.scalajs and com.raquo.ew. Rather than wait until the last
-    // file is done to run the first test, Native is given an explicit allowlist of ported packages.
-    //
-    // This list grows as packages are ported and is therefore the honest progress marker: what is not in it does not build
-    // on Native yet. When it covers everything, the filter goes away.
-    //
-    // app.tulz publishes no Native build, so the two generated traits that import it stay out regardless.
-    Compile / sources := {
-      val portedPackages  = Seq("/com/raquo/airstream/platform/")
-      val tuplezDependent = Set("CombineStreamOps.scala", "CombineSignalOps.scala")
-      (Compile / sources).value.filter { candidate =>
-        val path = candidate.getAbsolutePath.replace('\\', '/')
-        portedPackages.exists(path.contains) && !tuplezDependent.contains(candidate.getName)
-      }
-    },
+    nativeTestExclusionReasons := Map(
+      "AsyncUnitSpec.scala" -> "Scala.js event-loop test helper; Native timing tests use Timers.runDue instead",
+      "EventStreamFlattenFutureSpec.scala" -> "inherits the Scala.js async helper; Native Future flattening is covered by NativeFutureSpec",
+      "EventStreamFlattenSpec.scala" -> "mixes synchronous cases with Scala.js timer delays; Native switch and glitch suites cover the synchronous contract",
+      "SignalFlattenFutureSpec.scala" -> "inherits the Scala.js async helper; Native Future flattening is covered by NativeFutureSpec",
+      "StatusSpec.scala" -> "waits on the Scala.js wall clock; NativeStatusSpec drives delay and debounce status with Timers.runDue",
+      "DelayStreamSpec.scala" -> "waits on the Scala.js wall clock; NativeTimingSpec drives the same deadlines without sleeping",
+      "EventStreamFromFutureSpec.scala" -> "also tests JS Promise APIs; NativeFutureSpec covers the Future-only contract",
+      "PeriodicStreamSpec.scala" -> "waits on the Scala.js wall clock; NativeTimingSpec drives periodic deadlines without sleeping",
+      "SignalFromFutureSpec.scala" -> "also tests JS Promise APIs; NativeFutureSpec covers the Future-only contract",
+      "ThrottleStreamSpec.scala" -> "waits on the Scala.js wall clock; NativeTimingSpec drives both leading modes without sleeping"
+    ),
     Test / sources := {
-      val portedPackages = Seq("/com/raquo/airstream/platform/")
-      (Test / sources).value.filter { candidate =>
-        portedPackages.exists(candidate.getAbsolutePath.replace('\\', '/').contains)
+      val candidates = (Test / sources).value
+      val exclusions = nativeTestExclusionReasons.value
+      val unexplained = exclusions.collect { case (source, reason) if reason.trim.isEmpty => source }
+      if (unexplained.nonEmpty) {
+        sys.error(s"Native test exclusions without a reason: ${unexplained.toSeq.sorted.mkString(", ")}")
       }
+      if (exclusions.size > 10) {
+        sys.error(s"Native test exclusion budget exceeded: ${exclusions.size} sources (maximum 10)")
+      }
+      val staleExclusions = exclusions.keySet -- candidates.iterator.map(_.getName).toSet
+      if (staleExclusions.nonEmpty) {
+        sys.error(s"Native test exclusions no longer name source files: ${staleExclusions.toSeq.sorted.mkString(", ")}")
+      }
+      candidates.filterNot(candidate => exclusions.contains(candidate.getName))
     }
   )
 

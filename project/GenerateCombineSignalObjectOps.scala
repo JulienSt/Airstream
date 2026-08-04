@@ -51,7 +51,7 @@ case class GenerateCombineSignalObjectOps(
             line(s"parents = JsArray(${tupleType(n, "s", ".toObservable")}),")
             enter(s"combinator = arr => combinator(", ")") {
               for (i <- 0 until n) {
-                line(s"arr(${i}).asInstanceOf[T${i+1}],")
+                line(s"arr(${i}).asInstanceOf[T${i + 1}],")
               }
             }
           }

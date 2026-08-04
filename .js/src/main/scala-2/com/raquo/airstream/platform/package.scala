@@ -18,6 +18,15 @@ package object platform {
       */
     type JsMap[K, V] = com.raquo.ew.JsMap[K, V]
 
+    /** The immutable JavaScript vector retained by the splitting API. */
+    type JsVector[A] = com.raquo.ew.JsVector[A]
+
+    /** A raw JavaScript array retained by the splitting API. */
+    type ScalaJsArray[A] = scala.scalajs.js.Array[A]
+
+    /** A callback callable by JavaScript code. */
+    type JsCallback[-A] = scala.scalajs.js.Function1[A, Unit]
+
     /** The allocation-free optional value. On this platform it is JavaScript's own, which is what Airstream has always
       * used; the alias adds no wrapper and no forwarding.
       */

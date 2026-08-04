@@ -18,11 +18,14 @@ import scala.collection.mutable
   */
 object Timers {
 
-    /** A scheduled callback that has not fired yet. */
+    /** A scheduled one-shot callback that has not fired yet. */
     opaque type TimerHandle = Long
 
-    /** One waiting callback: when it is due, and what to run. */
-    private final case class Pending(handle: Long, dueAt: Double, body: () => Unit)
+    /** A scheduled repeating callback that has not been cancelled. */
+    opaque type IntervalHandle = Long
+
+    /** One waiting callback: when it is due, whether it repeats, and what to run. */
+    private final case class Pending(handle: Long, dueAt: Double, repeatEvery: Option[Double], body: () => Unit)
 
     private var nextHandle: Long             = 0L
     private val pending: mutable.ListBuffer[Pending] = mutable.ListBuffer.empty
@@ -38,35 +41,52 @@ object Timers {
       * @return
       *   a handle that cancels it
       */
-    def setTimeout(delayMillis: Double)(body: => Unit): TimerHandle = {
-        val handle = nextHandle
-        nextHandle += 1
-        pending += Pending(handle, currentTime + math.max(0.0, delayMillis), () => body)
-        handle
-    }
+    def setTimeout(delayMillis: Double)(body: => Unit): TimerHandle =
+        schedule(delayMillis, repeatEvery = None)(body)
 
-    /** Cancel a scheduled callback.
+    /** Cancel a scheduled one-shot callback.
       *
       * Accepts a handle that already fired or was already cancelled: a caller usually cannot know which, and making it
       * find out would push the bookkeeping back out to every call site.
       */
-    def clearTimeout(handle: TimerHandle): Unit = {
+    def clearTimeout(handle: TimerHandle): Unit = cancel(handle)
+
+    /** Run `body` repeatedly, no sooner than `intervalMillis` between eligible pumps.
+      *
+      * @return
+      *   a handle that cancels every future repetition
+      */
+    def setInterval(intervalMillis: Double)(body: => Unit): IntervalHandle = {
+        val period = math.max(0.0, intervalMillis)
+        schedule(period, repeatEvery = Some(period))(body)
+    }
+
+    /** Cancel a repeating callback. Accepts a handle that already fired or was already cancelled. */
+    def clearInterval(handle: IntervalHandle): Unit = cancel(handle)
+
+    private def schedule(delayMillis: Double, repeatEvery: Option[Double])(body: => Unit): Long = {
+        val handle = nextHandle
+        nextHandle += 1
+        pending += Pending(handle, currentTime + math.max(0.0, delayMillis), repeatEvery, () => body)
+        handle
+    }
+
+    private def cancel(handle: Long): Unit = {
         pending.indexWhere(_.handle == handle) match {
             case -1    => ()
             case index => pending.remove(index)
         }
     }
 
-    /** The current time in milliseconds.
+    /** The current time in milliseconds as last supplied by the event-loop driver.
       *
-      * Reads the wall clock rather than the pumped one, because a caller asking what time it is wants the real answer.
-      * That makes it the driver's job to pass wall-clock milliseconds to [[runDue]], which is what keeps a deadline and a
-      * reading comparable — and is why the two live in the same object instead of being read wherever they are needed.
+      * Reading the pumped clock keeps deadline calculation and `now()` on the same time source. Production drivers pass
+      * wall-clock milliseconds to [[runDue]]; deterministic tests pass a clock they control.
       *
       * @return
-      *   milliseconds since the epoch
+      *   the driver's latest time in milliseconds
       */
-    def now(): Double = System.currentTimeMillis().toDouble
+    def now(): Double = currentTime
 
     /** Forget every waiting callback. Exists for tests, which need to start from a known queue. */
     def clearAll(): Unit = {
@@ -86,11 +106,19 @@ object Timers {
     def runDue(now: Double): Int = {
         currentTime = now
         val due = pending.filter(_.dueAt <= now).sortBy(_.dueAt).toList
-        due.foreach(entry => clearTimeout(entry.handle))
-        due.foreach(_.body())
-        due.size
+        var ran = 0
+        due.foreach { entry =>
+            val pendingIndex = pending.indexWhere(_.handle == entry.handle)
+            if(pendingIndex >= 0) {
+                pending.remove(pendingIndex)
+                entry.repeatEvery.foreach(period => pending += entry.copy(dueAt = now + period))
+                entry.body()
+                ran += 1
+            }
+        }
+        ran
     }
 
     /** The clock as last reported to [[runDue]], which is what a new deadline is measured from. */
-    private var currentTime: Double = 0.0
+    private var currentTime: Double = now()
 }
