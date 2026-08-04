@@ -1,7 +1,7 @@
 package com.raquo.airstream.debug
 
-import com.raquo.airstream.platform.DevTools
 import com.raquo.airstream.core.{Named, Observable}
+import com.raquo.airstream.platform.DevTools
 import com.raquo.airstream.util.always
 
 import scala.annotation.nowarn

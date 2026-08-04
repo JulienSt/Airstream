@@ -2,9 +2,8 @@ package com.raquo.airstream.timing
 
 import com.raquo.airstream.common.{InternalNextErrorObserver, SingleParentStream}
 import com.raquo.airstream.core.{EventStream, Transaction}
+import com.raquo.airstream.platform.{undefined, Timers, UndefOr}
 import com.raquo.airstream.platform.JsArray
-
-import com.raquo.airstream.platform.{Timers, UndefOr, undefined}
 
 class DelayStream[A](
   override protected[this] val parent: EventStream[A],
@@ -17,24 +16,24 @@ class DelayStream[A](
   private val timerHandles: JsArray[Timers.TimerHandle] = JsArray()
 
   override protected def onNext(nextValue: A, transaction: Transaction): Unit = {
-    var timerHandle: Timers.TimerHandle = null
+    var timerHandle: UndefOr[Timers.TimerHandle] = undefined
     timerHandle = Timers.setTimeout(delayMs.toDouble) {
       // println(s"> init trx from DelayEventStream.onNext($nextValue)")
-      timerHandles.splice(timerHandles.indexOf(timerHandle), deleteCount = 1) // Remove handle
+      timerHandle.foreach(handle => timerHandles.splice(timerHandles.indexOf(handle), deleteCount = 1))
       Transaction(fireValue(nextValue, _))
       ()
     }
-    timerHandles.push(timerHandle)
+    timerHandles.push(timerHandle.get)
   }
 
   override def onError(nextError: Throwable, transaction: Transaction): Unit = {
-    var timerHandle: Timers.TimerHandle = null
+    var timerHandle: UndefOr[Timers.TimerHandle] = undefined
     timerHandle = Timers.setTimeout(delayMs.toDouble) {
-      timerHandles.splice(timerHandles.indexOf(timerHandle), deleteCount = 1) // Remove handle
+      timerHandle.foreach(handle => timerHandles.splice(timerHandles.indexOf(handle), deleteCount = 1))
       Transaction(fireError(nextError, _))
       ()
     }
-    timerHandles.push(timerHandle)
+    timerHandles.push(timerHandle.get)
   }
 
   override protected[this] def onStop(): Unit = {

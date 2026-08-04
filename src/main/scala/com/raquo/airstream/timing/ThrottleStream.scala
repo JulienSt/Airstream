@@ -2,8 +2,8 @@ package com.raquo.airstream.timing
 
 import com.raquo.airstream.common.{InternalTryObserver, SingleParentStream}
 import com.raquo.airstream.core.{EventStream, Transaction}
+import com.raquo.airstream.platform.{undefined, Timers, UndefOr}
 
-import com.raquo.airstream.platform.{Timers, UndefOr, undefined}
 import scala.util.Try
 
 /** [[ThrottleStream]] emits at most one event per `intervalMs`.

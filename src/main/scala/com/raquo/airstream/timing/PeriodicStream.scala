@@ -1,8 +1,8 @@
 package com.raquo.airstream.timing
 
 import com.raquo.airstream.core.{Transaction, WritableStream}
+import com.raquo.airstream.platform.{undefined, Timers, UndefOr}
 
-import com.raquo.airstream.platform.{Timers, UndefOr, undefined}
 import scala.util.{Failure, Success, Try}
 
 // #TODO[API] Since this has an initial value, should this be a signal perhaps?
