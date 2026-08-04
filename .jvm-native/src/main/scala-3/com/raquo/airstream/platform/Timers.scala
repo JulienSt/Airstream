@@ -4,10 +4,10 @@ import scala.collection.mutable
 
 /** Delayed callbacks on a platform with no event loop.
   *
-  * This is the one abstraction where the two platforms genuinely differ rather than merely being spelled differently. On
-  * JavaScript the event loop delivers a callback by itself. A Scala Native program has no loop at all: something has to
-  * decide when to look. Rather than start a thread and take on its locking — Airstream's whole transaction model assumes a
-  * single thread owning the graph — the callbacks wait in a queue until a caller says "run whatever is due".
+  * This is the one abstraction where JavaScript and the non-JavaScript targets genuinely differ rather than merely being
+  * spelled differently. JavaScript's event loop delivers a callback by itself. Native and JVM hosts instead decide when
+  * to look. Rather than start a thread and take on its locking — Airstream's transaction model assumes a single thread
+  * owning the graph — callbacks wait in a queue until the host says "run whatever is due".
   *
   * In a terminal application that caller already exists: the loop that blocks on the keyboard with a short timeout. Every
   * time the read comes back, due timers get their turn. Timing therefore becomes a property of a loop that is already
