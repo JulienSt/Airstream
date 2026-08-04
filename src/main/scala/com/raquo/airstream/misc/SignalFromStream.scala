@@ -2,8 +2,8 @@ package com.raquo.airstream.misc
 
 import com.raquo.airstream.common.SingleParentSignal
 import com.raquo.airstream.core.{EventStream, Protected, Transaction}
+import com.raquo.airstream.platform.{undefined, UndefOr}
 
-import com.raquo.airstream.platform.{UndefOr, undefined}
 import scala.util.Try
 
 class SignalFromStream[A](

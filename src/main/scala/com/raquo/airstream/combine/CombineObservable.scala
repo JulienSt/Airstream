@@ -3,8 +3,7 @@ package com.raquo.airstream.combine
 import com.raquo.airstream.common.InternalParentObserver
 import com.raquo.airstream.core.{SyncObservable, Transaction, WritableObservable}
 import com.raquo.airstream.core.AirstreamError.CombinedError
-import com.raquo.airstream.platform.JsArray
-import org.scalajs.dom
+import com.raquo.airstream.platform.{DevTools, JsArray}
 
 import scala.util.{Failure, Success, Try}
 
@@ -40,7 +39,7 @@ trait CombineObservable[A] extends SyncObservable[A] { this: WritableObservable[
       fireTry(combinedValue, transaction)
     } else {
       // Users, please report this warning to me if you see it.
-      dom.console.warn("CombineObservable: inputs not ready when syncFire")
+      DevTools.warn("CombineObservable: inputs not ready when syncFire")
     }
   }
 
@@ -77,10 +76,12 @@ object CombineObservable {
       val values = trys.map(_.get)
       Success(combinator(values))
     } else {
-      val errors = trys.map {
-        case Failure(err) => Some(err)
-        case _ => None
-      }.asScalaJs.toSeq
+      val collected = Seq.newBuilder[Option[Throwable]]
+      trys.forEach {
+        case Failure(err) => collected += Some(err)
+        case _ => collected += None
+      }
+      val errors = collected.result()
       Failure(CombinedError(errors))
     }
   }

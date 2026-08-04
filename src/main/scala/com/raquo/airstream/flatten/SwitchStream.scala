@@ -2,8 +2,8 @@ package com.raquo.airstream.flatten
 
 import com.raquo.airstream.common.InternalNextErrorObserver
 import com.raquo.airstream.core.{EventStream, InternalObserver, Observable, Protected, Signal, Transaction, WritableStream}
+import com.raquo.airstream.platform.{undefined, UndefOr}
 
-import com.raquo.airstream.platform.{UndefOr, undefined}
 import scala.util.{Failure, Success, Try}
 
 /** `parent` observable emits values that we convert into streams using `makeStream`.

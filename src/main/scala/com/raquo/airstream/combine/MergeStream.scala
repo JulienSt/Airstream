@@ -2,10 +2,9 @@ package com.raquo.airstream.combine
 
 import com.raquo.airstream.common.{InternalParentObserver, MultiParentStream, Observation}
 import com.raquo.airstream.core.{EventStream, Observable, Protected, SyncObservable, Transaction, WritableStream}
-import com.raquo.airstream.util.JsPriorityQueue
+import com.raquo.airstream.platform.{undefined, UndefOr}
 import com.raquo.airstream.platform.JsArray
-
-import com.raquo.airstream.platform.{UndefOr, undefined}
+import com.raquo.airstream.util.JsPriorityQueue
 
 /** Stream that emit events from all of its parents.
   *

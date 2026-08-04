@@ -1,8 +1,7 @@
 package com.raquo.airstream.status
 
 import com.raquo.airstream.core.{BaseObservable, EventStream, Observable}
-
-import com.raquo.airstream.platform.{UndefOr, undefined}
+import com.raquo.airstream.platform.{undefined, UndefOr}
 
 /** Tracks the status of input and output of operator(stream). See [[Status]]. */
 object AsyncStatusObservable {

@@ -1,7 +1,8 @@
 package com.raquo.airstream.core
 
+import com.raquo.airstream.platform.{undefined, UndefOr}
+
 import scala.annotation.nowarn
-import com.raquo.airstream.platform.{UndefOr, undefined}
 import scala.util.{Failure, Success, Try}
 
 /** This trait exists to provide private functionality that can not be covariant in A.

@@ -2,9 +2,9 @@ package com.raquo.airstream.combine
 
 import com.raquo.airstream.common.{InternalParentObserver, MultiParentStream}
 import com.raquo.airstream.core.{EventStream, Observable, Protected}
+import com.raquo.airstream.platform.{undefined, UndefOr}
 import com.raquo.airstream.platform.JsArray
 
-import com.raquo.airstream.platform.{UndefOr, undefined}
 import scala.util.Try
 
 /**

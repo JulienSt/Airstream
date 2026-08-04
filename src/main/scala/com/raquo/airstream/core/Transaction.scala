@@ -3,11 +3,11 @@ package com.raquo.airstream.core
 import com.raquo.airstream.combine.MergeStream
 import com.raquo.airstream.core.AirstreamError.TransactionDepthExceeded
 import com.raquo.airstream.custom.CustomSource
-import com.raquo.airstream.util.JsPriorityQueue
 import com.raquo.airstream.platform.{JsArray, JsMap}
+import com.raquo.airstream.platform.{undefined, UndefOr}
+import com.raquo.airstream.util.JsPriorityQueue
 
 import scala.annotation.tailrec
-import com.raquo.airstream.platform.{UndefOr, undefined}
 
 /** Transaction is a moment in time during which Airstream guarantees no FRP glitches.
   *
