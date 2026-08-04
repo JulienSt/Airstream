@@ -4,7 +4,7 @@ import com.raquo.airstream.combine.MergeStream
 import com.raquo.airstream.core.AirstreamError.TransactionDepthExceeded
 import com.raquo.airstream.custom.CustomSource
 import com.raquo.airstream.util.JsPriorityQueue
-import com.raquo.ew.{JsArray, JsMap}
+import com.raquo.airstream.platform.{JsArray, JsMap}
 
 import scala.annotation.tailrec
 import com.raquo.airstream.platform.{UndefOr, undefined}

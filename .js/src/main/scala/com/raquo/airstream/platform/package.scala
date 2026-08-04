@@ -13,6 +13,11 @@ package object platform {
 
     val JsArray: com.raquo.ew.JsArray.type = com.raquo.ew.JsArray
 
+    /** The keyed store the transaction bookkeeping uses. JavaScript's own `Map` already iterates in insertion order,
+      * which is what nested transactions depend on.
+      */
+    type JsMap[K, V] = com.raquo.ew.JsMap[K, V]
+
     /** The allocation-free optional value. On this platform it is JavaScript's own, which is what Airstream has always
       * used; the alias adds no wrapper and no forwarding.
       */
