@@ -1,15 +1,14 @@
 import VersionHelper.{fallbackVersion, versionFmt}
 import com.raquo.buildkit.SourceDownloader
-import sbtcrossproject.CrossPlugin.autoImport.{crossProject, CrossType}
+import sbtcrossproject.CrossPlugin.autoImport.{crossProject, CrossType, JVMPlatform}
 import scalajscrossproject.ScalaJSCrossPlugin.autoImport.JSPlatform
 import scalanativecrossproject.ScalaNativeCrossPlugin.autoImport.NativePlatform
 
-// Airstream cross-builds for Scala.js and Scala Native.
+// Airstream cross-builds for Scala.js, Scala Native, and the JVM.
 //
-// CrossType.Pure is deliberate: the shared sources stay exactly where they have always been, in src/, and the
-// platform-specific ones live in .js/ and .native/. The source tree is therefore untouched by the port, and the whole
-// change is this one file — which is what a reviewer needs in order to read it as "a platform abstraction was introduced"
-// rather than "somebody rewrote the core".
+// CrossType.Pure is deliberate: the shared sources stay exactly where they have always been, in src/. JavaScript-only
+// sources live in .js/; the platform-neutral non-JavaScript backend shared by Native and JVM lives in .jvm-native/. The
+// source tree is therefore untouched by the port, and the split is visible in the build rather than in runtime branches.
 //
 // The JavaScript build must come out identical. Everything JS-specific — scalajs-dom, ew, the jsdom test environment, the
 // main-module initializer, MiMa, the CI source mapping — moved into jsSettings rather than being deleted or made
@@ -17,8 +16,45 @@ import scalanativecrossproject.ScalaNativeCrossPlugin.autoImport.NativePlatform
 
 lazy val preload = taskKey[Unit]("runs Airstream-specific pre-load tasks")
 
-lazy val nativeTestExclusionReasons =
-  settingKey[Map[String, String]]("Native-incompatible test sources and the reviewable reason for each exclusion")
+lazy val nonJavaScriptTestExclusionReasons =
+  settingKey[Map[String, String]]("Non-JavaScript test sources excluded with a reviewable reason")
+
+lazy val nonJavaScriptSettings = Seq(
+  crossScalaVersions := Seq(Versions.Scala_3),
+  Compile / unmanagedSourceDirectories ++= {
+    val root = (ThisBuild / baseDirectory).value / ".jvm-native" / "src" / "main"
+    Seq(root / "scala", root / s"scala-${scalaBinaryVersion.value}")
+  },
+  Test / unmanagedSourceDirectories += (ThisBuild / baseDirectory).value / ".jvm-native" / "src" / "test" / "scala",
+  nonJavaScriptTestExclusionReasons := Map(
+    "AsyncUnitSpec.scala" -> "Scala.js event-loop test helper; non-JS timing tests drive Timers.runDue instead",
+    "EventStreamFlattenFutureSpec.scala" -> "inherits the Scala.js async helper; NativeFutureSpec covers Future flattening",
+    "EventStreamFlattenSpec.scala" -> "mixes synchronous cases with Scala.js timers; switch and glitch suites cover the synchronous contract",
+    "SignalFlattenFutureSpec.scala" -> "inherits the Scala.js async helper; NativeFutureSpec covers Future flattening",
+    "StatusSpec.scala" -> "waits on the Scala.js wall clock; NativeStatusSpec drives delay and debounce status",
+    "DelayStreamSpec.scala" -> "waits on the Scala.js wall clock; NativeTimingSpec drives the same deadlines without sleeping",
+    "EventStreamFromFutureSpec.scala" -> "also tests JS Promise APIs; NativeFutureSpec covers the Future-only contract",
+    "PeriodicStreamSpec.scala" -> "waits on the Scala.js wall clock; NativeTimingSpec drives periodic deadlines",
+    "SignalFromFutureSpec.scala" -> "also tests JS Promise APIs; NativeFutureSpec covers the Future-only contract",
+    "ThrottleStreamSpec.scala" -> "waits on the Scala.js wall clock; NativeTimingSpec drives both leading modes"
+  ),
+  Test / sources := {
+    val candidates = (Test / sources).value
+    val exclusions = nonJavaScriptTestExclusionReasons.value
+    val unexplained = exclusions.collect { case (source, reason) if reason.trim.isEmpty => source }
+    if (unexplained.nonEmpty) {
+      sys.error(s"Non-JavaScript test exclusions without a reason: ${unexplained.toSeq.sorted.mkString(", ")}")
+    }
+    if (exclusions.size > 10) {
+      sys.error(s"Non-JavaScript test exclusion budget exceeded: ${exclusions.size} sources (maximum 10)")
+    }
+    val staleExclusions = exclusions.keySet -- candidates.iterator.map(_.getName).toSet
+    if (staleExclusions.nonEmpty) {
+      sys.error(s"Non-JavaScript test exclusions no longer name source files: ${staleExclusions.toSeq.sorted.mkString(", ")}")
+    }
+    candidates.filterNot(candidate => exclusions.contains(candidate.getName))
+  }
+)
 
 preload := {
   val projectDir = (ThisBuild / baseDirectory).value
@@ -118,13 +154,13 @@ def tuplezGenerators(sourceDir: File): Seq[File] = Seq.concat(
 
 lazy val root = project
   .in(file("."))
-  .aggregate(airstream.js, airstream.native)
+  .aggregate(airstream.js, airstream.jvm, airstream.native)
   .settings(
     name := "airstream-root",
     publish / skip := true
   )
 
-lazy val airstream = crossProject(JSPlatform, NativePlatform)
+lazy val airstream = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .crossType(CrossType.Pure)
   .in(file("."))
   .settings(
@@ -213,38 +249,8 @@ lazy val airstream = crossProject(JSPlatform, NativePlatform)
       s"${sourcesOptionName}:$localSourcesPath->$remoteSourcesPath"
     }
   )
-  .nativeSettings(
-    crossScalaVersions := Seq(Versions.Scala_3),
-    // No MiMa here: there is no previously published Native artifact to compare against.
-    nativeTestExclusionReasons := Map(
-      "AsyncUnitSpec.scala" -> "Scala.js event-loop test helper; Native timing tests use Timers.runDue instead",
-      "EventStreamFlattenFutureSpec.scala" -> "inherits the Scala.js async helper; Native Future flattening is covered by NativeFutureSpec",
-      "EventStreamFlattenSpec.scala" -> "mixes synchronous cases with Scala.js timer delays; Native switch and glitch suites cover the synchronous contract",
-      "SignalFlattenFutureSpec.scala" -> "inherits the Scala.js async helper; Native Future flattening is covered by NativeFutureSpec",
-      "StatusSpec.scala" -> "waits on the Scala.js wall clock; NativeStatusSpec drives delay and debounce status with Timers.runDue",
-      "DelayStreamSpec.scala" -> "waits on the Scala.js wall clock; NativeTimingSpec drives the same deadlines without sleeping",
-      "EventStreamFromFutureSpec.scala" -> "also tests JS Promise APIs; NativeFutureSpec covers the Future-only contract",
-      "PeriodicStreamSpec.scala" -> "waits on the Scala.js wall clock; NativeTimingSpec drives periodic deadlines without sleeping",
-      "SignalFromFutureSpec.scala" -> "also tests JS Promise APIs; NativeFutureSpec covers the Future-only contract",
-      "ThrottleStreamSpec.scala" -> "waits on the Scala.js wall clock; NativeTimingSpec drives both leading modes without sleeping"
-    ),
-    Test / sources := {
-      val candidates = (Test / sources).value
-      val exclusions = nativeTestExclusionReasons.value
-      val unexplained = exclusions.collect { case (source, reason) if reason.trim.isEmpty => source }
-      if (unexplained.nonEmpty) {
-        sys.error(s"Native test exclusions without a reason: ${unexplained.toSeq.sorted.mkString(", ")}")
-      }
-      if (exclusions.size > 10) {
-        sys.error(s"Native test exclusion budget exceeded: ${exclusions.size} sources (maximum 10)")
-      }
-      val staleExclusions = exclusions.keySet -- candidates.iterator.map(_.getName).toSet
-      if (staleExclusions.nonEmpty) {
-        sys.error(s"Native test exclusions no longer name source files: ${staleExclusions.toSeq.sorted.mkString(", ")}")
-      }
-      candidates.filterNot(candidate => exclusions.contains(candidate.getName))
-    }
-  )
+  .jvmSettings(nonJavaScriptSettings)
+  .nativeSettings(nonJavaScriptSettings)
 
 // https://github.com/JetBrains/sbt-ide-settings
 SettingKey[Seq[File]]("ide-excluded-directories").withRank(KeyRanks.Invisible) := Seq(
