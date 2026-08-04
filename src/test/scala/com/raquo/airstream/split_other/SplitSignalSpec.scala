@@ -5,15 +5,14 @@ import com.raquo.airstream.core.{AirstreamError, Observer, Signal, Transaction}
 import com.raquo.airstream.eventbus.EventBus
 import com.raquo.airstream.fixtures.{Effect, TestableOwner}
 import com.raquo.airstream.ownership.{DynamicOwner, DynamicSubscription, ManualOwner, Subscription}
+import com.raquo.airstream.platform.JsArray
 import com.raquo.airstream.split.{DuplicateKeysConfig, Splittable}
 import com.raquo.airstream.split.KeyedStrictSignal.withKey
 import com.raquo.airstream.state.Var
 import com.raquo.airstream.util.IdWrap
-import com.raquo.ew.JsArray
 import org.scalatest.{Assertion, BeforeAndAfter}
 
 import scala.collection.{immutable, mutable}
-import scala.scalajs.js
 import scala.util.{Success, Try}
 
 // #Warning: this test is not in the `split` package to make sure that Scala 2.13 specific implicits
@@ -1193,13 +1192,13 @@ class SplitSignalSpec extends UnitSpec with BeforeAndAfter {
     errorEffects.clear()
   }
 
-  it("split list / vector / set / js.array / immutable.seq / collection.seq / option compiles") {
+  it("split list / vector / set / immutable.seq / collection.seq / platform array compiles") {
     // Having this test pass on all supported Scala versions is important to ensure that the implicits are actually usable.
     {
       (new EventBus[List[Foo]]).events.splitSeq(_.id)(_ => 100)
       (new EventBus[Vector[Foo]]).events.splitSeq(_.id)(_ => 100)
       (new EventBus[Set[Foo]]).events.splitSeq(_.id)(_ => 100)
-      (new EventBus[js.Array[Foo]]).events.splitSeq(_.id)(_ => 100)
+      (new EventBus[JsArray[Foo]]).events.splitSeq(_.id)(_ => 100)
       (new EventBus[immutable.Seq[Foo]]).events.splitSeq(_.id)(_ => 100)
       (new EventBus[collection.Seq[Foo]]).events.splitSeq(_.id)(_ => 100)
       (new EventBus[collection.Seq[Foo]]).events.splitSeq(_.id)(_ => 100)
@@ -1209,7 +1208,7 @@ class SplitSignalSpec extends UnitSpec with BeforeAndAfter {
       (new EventBus[List[Foo]]).events.splitSeq(_.id, identity)(_ => 100)
       (new EventBus[Vector[Foo]]).events.splitSeq(_.id, identity)(_ => 100)
       (new EventBus[Set[Foo]]).events.splitSeq(_.id, identity)(_ => 100)
-      (new EventBus[js.Array[Foo]]).events.splitSeq(_.id, identity)(_ => 100)
+      (new EventBus[JsArray[Foo]]).events.splitSeq(_.id, identity)(_ => 100)
       (new EventBus[immutable.Seq[Foo]]).events.splitSeq(_.id, identity)(_ => 100)
       (new EventBus[collection.Seq[Foo]]).events.splitSeq(_.id, identity)(_ => 100)
       (new EventBus[collection.Seq[Foo]]).events.splitSeq(_.id, identity)(_ => 100)
@@ -1617,7 +1616,9 @@ class SplitSignalSpec extends UnitSpec with BeforeAndAfter {
 
     // --
 
-    arr.reverse()
+    val first = arr(0)
+    arr.update(0, arr(1))
+    arr.update(1, first)
 
     myVar.set(arr)
 
@@ -1630,7 +1631,7 @@ class SplitSignalSpec extends UnitSpec with BeforeAndAfter {
     // --
 
     arr.update(0, Foo("b", 2))
-    arr.pop()
+    arr.length = arr.length - 1
 
     myVar.set(arr)
 

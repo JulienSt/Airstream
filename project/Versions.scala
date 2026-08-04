@@ -15,4 +15,6 @@ object Versions {
   // -- Test --
 
   val ScalaTest = "3.2.19"
+
+  val ScalaCheck = "1.18.1"
 }

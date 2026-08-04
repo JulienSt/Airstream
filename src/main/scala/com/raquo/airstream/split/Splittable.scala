@@ -1,7 +1,7 @@
 package com.raquo.airstream.split
 
+import com.raquo.airstream.platform.{JsArray, JsVector, PlatformCollections, ScalaJsArray}
 import com.raquo.airstream.util.Id
-import com.raquo.airstream.platform.JsArray
 
 import scala.collection.{immutable, mutable}
 
@@ -79,7 +79,7 @@ trait Splittable[M[_]] { self =>
     }
 }
 
-object Splittable extends LowPrioritySplittableImplicits with SplittablePlatformInstances {
+object Splittable extends LowPrioritySplittableImplicits {
 
   implicit object ListSplittable extends Splittable[List] {
 
@@ -127,13 +127,35 @@ object Splittable extends LowPrioritySplittableImplicits with SplittablePlatform
 
   implicit object JsArraySplittable extends Splittable[JsArray] {
 
-    override def create[A](values: Seq[A]): JsArray[A] = JsArray(values*)
+    override def create[A](values: Seq[A]): JsArray[A] = JsArray(values: _*)
 
     override def map[A, B](inputs: JsArray[A], project: A => B): JsArray[B] = inputs.map(project)
 
     override def foreach[A](inputs: JsArray[A], f: A => Unit): Unit = inputs.forEach(f)
 
     override def isEmpty[A](inputs: JsArray[A]): Boolean = inputs.length == 0
+  }
+
+  implicit object JsVectorSplittable extends Splittable[JsVector] {
+
+    override def create[A](values: Seq[A]): JsVector[A] = PlatformCollections.jsVector(values)
+
+    override def map[A, B](inputs: JsVector[A], project: A => B): JsVector[B] = inputs.map(project)
+
+    override def foreach[A](inputs: JsVector[A], f: A => Unit): Unit = inputs.forEach(f)
+
+    override def isEmpty[A](inputs: JsVector[A]): Boolean = inputs.length == 0
+  }
+
+  implicit object ScalaJsArraySplittable extends Splittable[ScalaJsArray] {
+
+    override def create[A](values: Seq[A]): ScalaJsArray[A] = PlatformCollections.scalaJsArray(values)
+
+    override def map[A, B](inputs: ScalaJsArray[A], project: A => B): ScalaJsArray[B] = inputs.map(project)
+
+    override def foreach[A](inputs: ScalaJsArray[A], f: A => Unit): Unit = inputs.foreach(f)
+
+    override def isEmpty[A](inputs: ScalaJsArray[A]): Boolean = inputs.isEmpty
   }
 
   /** Used for splitOption. Not `implicit`, to avoid accidental use with splitSeq.

@@ -1,7 +1,7 @@
 package com.raquo.airstream.core
 
-
 import com.raquo.airstream.platform.{DevTools, Timers}
+
 import scala.collection.mutable
 
 sealed abstract class AirstreamError(message: String) extends Throwable(message)
@@ -116,7 +116,7 @@ object AirstreamError {
     } catch {
       case err: Throwable =>
         // If you ever hit this, you will _really_ appreciate this printout.
-        DevTools.error(s"Error in AirstreamError.consoleErrorCallback: $err")
+        DevTools.consoleErrorCallbackFailed(err)
     }
   }
 

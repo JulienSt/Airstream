@@ -7,11 +7,10 @@ import com.raquo.airstream.fixtures.{Effect, TestableOwner}
 import com.raquo.airstream.ownership.{DynamicOwner, DynamicSubscription, ManualOwner, Subscription}
 import com.raquo.airstream.split.DuplicateKeysConfig
 import com.raquo.airstream.state.Var
-import com.raquo.ew.{JsArray, JsVector}
+import com.raquo.airstream.platform.JsArray
 import org.scalatest.{Assertion, BeforeAndAfter}
 
 import scala.collection.{immutable, mutable}
-import scala.scalajs.js
 import com.raquo.airstream.state.Var.update
 
 class SplitMatchSeqSpec extends UnitSpec with BeforeAndAfter {
@@ -739,15 +738,13 @@ class SplitMatchSeqSpec extends UnitSpec with BeforeAndAfter {
     errorEffects.clear()
   }
 
-  it("split list / vector / set / js.array / immutable.seq / collection.seq / option compiles") {
+  it("split list / vector / set / immutable.seq / collection.seq / platform array compiles") {
     // Having this test pass on all supported Scala versions is important to ensure that the implicits are actually usable.
     {
       (new EventBus[List[Foo]]).events.splitMatchSeq(_.id).handleCase{ case e: FooE => e }(_ => 10).handleType[FooC](_ => 20).handleValue(FooO)(30).toSignal
       (new EventBus[Vector[Foo]]).events.splitMatchSeq(_.id).handleCase{ case e: FooE => e }(_ => 10).handleType[FooC](_ => 20).handleValue(FooO)(30).toSignal
       (new EventBus[Set[Foo]]).events.splitMatchSeq(_.id).handleCase{ case e: FooE => e }(_ => 10).handleType[FooC](_ => 20).handleValue(FooO)(30).toSignal
-      (new EventBus[js.Array[Foo]]).events.splitMatchSeq(_.id).handleCase{ case e: FooE => e }(_ => 10).handleType[FooC](_ => 20).handleValue(FooO)(30).toSignal
       (new EventBus[JsArray[Foo]]).events.splitMatchSeq(_.id).handleCase{ case e: FooE => e }(_ => 10).handleType[FooC](_ => 20).handleValue(FooO)(30).toSignal
-      (new EventBus[JsVector[Foo]]).events.splitMatchSeq(_.id).handleCase{ case e: FooE => e }(_ => 10).handleType[FooC](_ => 20).handleValue(FooO)(30).toSignal
       (new EventBus[immutable.Seq[Foo]]).events.splitMatchSeq(_.id).handleCase{ case e: FooE => e }(_ => 10).handleType[FooC](_ => 20).handleValue(FooO)(30).toSignal
       (new EventBus[collection.Seq[Foo]]).events.splitMatchSeq(_.id).handleCase{ case e: FooE => e }(_ => 10).handleType[FooC](_ => 20).handleValue(FooO)(30).toSignal
       (new EventBus[collection.Seq[Foo]]).events.splitMatchSeq(_.id).handleCase{ case e: FooE => e }(_ => 10).handleType[FooC](_ => 20).handleValue(FooO)(30).toSignal
@@ -757,9 +754,7 @@ class SplitMatchSeqSpec extends UnitSpec with BeforeAndAfter {
       (new EventBus[List[Foo]]).events.splitMatchSeq(_.id, identity).handleCase{ case e: FooE => e }(_ => 10).handleType[FooC](_ => 20).handleValue(FooO)(30).toSignal
       (new EventBus[Vector[Foo]]).events.splitMatchSeq(_.id, identity).handleCase{ case e: FooE => e }(_ => 10).handleType[FooC](_ => 20).handleValue(FooO)(30).toSignal
       (new EventBus[Set[Foo]]).events.splitMatchSeq(_.id, identity).handleCase{ case e: FooE => e }(_ => 10).handleType[FooC](_ => 20).handleValue(FooO)(30).toSignal
-      (new EventBus[js.Array[Foo]]).events.splitMatchSeq(_.id, identity).handleCase{ case e: FooE => e }(_ => 10).handleType[FooC](_ => 20).handleValue(FooO)(30).toSignal
       (new EventBus[JsArray[Foo]]).events.splitMatchSeq(_.id, identity).handleCase{ case e: FooE => e }(_ => 10).handleType[FooC](_ => 20).handleValue(FooO)(30).toSignal
-      (new EventBus[JsVector[Foo]]).events.splitMatchSeq(_.id, identity).handleCase{ case e: FooE => e }(_ => 10).handleType[FooC](_ => 20).handleValue(FooO)(30).toSignal
       (new EventBus[immutable.Seq[Foo]]).events.splitMatchSeq(_.id, identity).handleCase{ case e: FooE => e }(_ => 10).handleType[FooC](_ => 20).handleValue(FooO)(30).toSignal
       (new EventBus[collection.Seq[Foo]]).events.splitMatchSeq(_.id, identity).handleCase{ case e: FooE => e }(_ => 10).handleType[FooC](_ => 20).handleValue(FooO)(30).toSignal
       (new EventBus[collection.Seq[Foo]]).events.splitMatchSeq(_.id, identity).handleCase{ case e: FooE => e }(_ => 10).handleType[FooC](_ => 20).handleValue(FooO)(30).toSignal
