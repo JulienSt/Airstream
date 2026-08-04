@@ -35,6 +35,10 @@ jobs:
         run: sbt +test
       - name: Test JavaScript regression checker
         run: python3 -m unittest scripts/tests/test_check_js_regression.py
+      - name: Test shared platform boundary checker
+        run: python3 -m unittest scripts/tests/test_check_platform_boundaries.py
+      - name: Check shared platform boundaries
+        run: python3 scripts/check_platform_boundaries.py
       - name: Test Native port diff checker
         run: python3 -m unittest scripts/tests/test_report_port_diff.py
       - name: Check Native port review surface
