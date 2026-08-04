@@ -1,4 +1,4 @@
 package com.raquo.airstream.core
 
-/** Signal instance members supplied by Native. There is no module-loader API on this platform. */
+/** Signal instance members for platforms without the JavaScript module-loader API. */
 trait SignalInstancePlatformOps[+A] { this: Signal[A] => }

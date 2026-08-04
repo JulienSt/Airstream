@@ -15,8 +15,8 @@ package com.raquo.airstream.platform
   * optional slots hold transactions, observables, and queues rather than primitives. Reference values retain their exact
   * object identity and receive no wrapper.
   *
-  * Scala 3 only, and that is why the Native build is pinned to it. Opaque types and extension methods are what make this
-  * free at runtime; the Scala 2.13 build stays on the JavaScript side where the platform provides the type natively.
+  * Scala 3 only, and that is why both non-JavaScript builds are pinned to it. Opaque types and extension methods make this
+  * free at runtime; the Scala 2.13 build stays on JavaScript where the platform provides the type natively.
   */
 private object UndefinedValue
 
