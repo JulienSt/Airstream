@@ -5,7 +5,6 @@ import com.raquo.airstream.core.AirstreamError.TransactionDepthExceeded
 import com.raquo.airstream.eventbus.EventBus
 import com.raquo.airstream.fixtures.{Effect, TestableOwner}
 import com.raquo.airstream.state.Var
-import org.scalajs.dom
 import org.scalatest.BeforeAndAfter
 
 import scala.collection.mutable
@@ -170,6 +169,43 @@ class TransactionSpec extends UnitSpec with BeforeAndAfter {
     errorEffects.clear()
   }
 
+  it("Processes observables by topological rank regardless of subscription order") {
+    val owner = new TestableOwner
+    val bus = new EventBus[Int]
+    val middle = bus.events.map(_ + 1)
+    val leaf = middle.map(_ * 10)
+    val order = mutable.Buffer[String]()
+
+    leaf.foreach(_ => order += "leaf")(owner)
+    middle.foreach(_ => order += "middle")(owner)
+    bus.events.foreach(_ => order += "source")(owner)
+
+    bus.emit(1)
+
+    order shouldBe mutable.Buffer("source", "middle", "leaf")
+    Transaction.isClearState shouldBe true
+  }
+
+  it("Runs nested children depth first and preserves sibling insertion order") {
+    val order = mutable.Buffer[String]()
+
+    Transaction { _ =>
+      order += "outer-start"
+      Transaction { _ =>
+        order += "first-child"
+        Transaction { _ =>
+          order += "grandchild"
+        }
+      }
+      Transaction { _ =>
+        order += "second-child"
+      }
+      order += "outer-end"
+    }
+
+    order shouldBe mutable.Buffer("outer-start", "outer-end", "first-child", "grandchild", "second-child")
+    Transaction.isClearState shouldBe true
+  }
   it("Stack safe (no overflow via breadth)") {
     val owner = new TestableOwner
     val bus = new EventBus[Unit]
@@ -177,25 +213,21 @@ class TransactionSpec extends UnitSpec with BeforeAndAfter {
     val num = 20000
     var ix = 0
 
-    try {
-      bus.events.foreach { _ =>
-        new Transaction(_ =>
-          for {
-            i <- 1 to num
-          } yield {
-            new Transaction(_ =>
-              ix += 1
-            )
-          }
-        )
-      }(owner)
-      bus.emit(())
-      // dom.console.log(s"Done without errors: ${ix}")
-    } catch {
-      case err: Throwable =>
-        dom.console.log(s"Stack overflow (depth) after ${ix} sibling transactions!")
-        throw err
-    }
+    bus.events.foreach { _ =>
+      new Transaction(_ =>
+        for {
+          i <- 1 to num
+        } yield {
+          new Transaction(_ =>
+            ix += 1
+          )
+        }
+      )
+    }(owner)
+    bus.emit(())
+
+    ix shouldBe num
+    Transaction.isClearState shouldBe true
   }
 
   it("Stack safe (no overflow via depth)") {
@@ -214,17 +246,14 @@ class TransactionSpec extends UnitSpec with BeforeAndAfter {
     try {
       bus.events.filter(_ < maxNum).map { n =>
         ix = n + 1
-        // dom.console.log(ix)
         ix
       }.foreach { n =>
         bus.emit(n)
       }(owner)
       bus.emit(0)
-      // dom.console.log(s"Done without errors: ${ix}")
-    } catch {
-      case err: Throwable =>
-        dom.console.log(s"Stack overflow (depth) after ${ix} nested transactions!")
-        throw err
+
+      ix shouldBe maxNum
+      Transaction.isClearState shouldBe true
     } finally {
       Transaction.maxDepth = defaultMaxDepth
     }
