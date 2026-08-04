@@ -5,11 +5,11 @@ import com.raquo.airstream.distinct.DistinctOps
 import com.raquo.airstream.flatten.{AllowFlatMap, FlattenStrategy, MergingStrategy, SwitchingStrategy}
 import com.raquo.airstream.map.MapOps
 import com.raquo.airstream.ownership.{Owner, Subscription}
-import com.raquo.airstream.status.{FlatMapStatusObservable, Status}
+import com.raquo.airstream.platform.{undefined, UndefOr}
 import com.raquo.airstream.platform.JsArray
+import com.raquo.airstream.status.{FlatMapStatusObservable, Status}
 
 import scala.annotation.unused
-import com.raquo.airstream.platform.{UndefOr, undefined}
 import scala.util.Try
 
 /** This trait represents a reactive value that can be subscribed to.

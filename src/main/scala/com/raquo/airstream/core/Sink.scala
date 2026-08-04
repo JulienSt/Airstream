@@ -1,5 +1,7 @@
 package com.raquo.airstream.core
 
+import com.raquo.airstream.platform.{JsCallback, PlatformCallbacks}
+
 /**
   * A Sink is something that can be converted to an [[Observer]].
   * The counterparty to Sink is a [[Source]], something that can be converted to an [[Observable]].
@@ -17,8 +19,12 @@ trait Sink[-A] {
   def toObserver: Observer[A]
 }
 
-object Sink extends SinkPlatformOps {
+object Sink {
 
+  /** Treat a platform callback as somewhere events can be sent. */
+  implicit def jsCallbackToSink[A](callback: JsCallback[A]): Sink[A] = new Sink[A] {
+    override def toObserver: Observer[A] = Observer(value => PlatformCallbacks.call(callback, value))
+  }
   // @TODO[Scala3]
   //  - Unfortunately I can't get callbackToSink to work in Laminar because the type inference
   //    fails if you provide a lambda (without type ascription) like (v => println(v)) where

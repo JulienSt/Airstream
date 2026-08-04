@@ -7,18 +7,14 @@ import com.raquo.airstream.custom.{CustomSignalSource, CustomSource}
 import com.raquo.airstream.custom.CustomSource._
 import com.raquo.airstream.debug.{Debugger, DebuggerSignal, DebugOps, DebugSignalOps}
 import com.raquo.airstream.distinct.{DistinctOps, DistinctSignal}
-import com.raquo.airstream.dynamicImport.{DynamicImportSignalObjectOps, DynamicImportSignalOps}
 import com.raquo.airstream.extensions._
 import com.raquo.airstream.map.{MapOps, MapSignal}
 import com.raquo.airstream.misc.{ScanLeftSignal, StreamFromSignal}
 import com.raquo.airstream.ownership.Owner
+import com.raquo.airstream.platform.JsArray
 import com.raquo.airstream.state.{ObservedSignal, OwnedSignal, Val}
-import com.raquo.airstream.timing.JsPromiseSignal
-import com.raquo.ew.JsArray
 
 import scala.concurrent.{ExecutionContext, Future}
-import scala.scalajs.js
-import scala.scalajs.js.JSConverters._
 import scala.util.Try
 
 /** Signal is an Observable with a current value. */
@@ -29,7 +25,7 @@ with SignalSource[A]
 with CombineSignalOps[A] // combineWith, combineWithFn, withCurrentValueOf, sample
 with ScanLeftSignalOps[Signal, A] // scanLeft, scanLeftRecover
 with DebugSignalOps[Signal, A] // debug* (debugLogEvents, debugSpyAll, etc.)
-with DynamicImportSignalOps[A] // dynamicImport (Scala 3 only)
+with SignalInstancePlatformOps[A] // dynamicImport on platforms that provide a module loader
 {
 
   protected[this] var _lastUpdateId: Int = 0
@@ -214,7 +210,7 @@ with DynamicImportSignalOps[A] // dynamicImport (Scala 3 only)
 
 object Signal
 extends CombineSignalObjectOps
-with DynamicImportSignalObjectOps // Provides `dynamicImport` method (Scala 3 only)
+with SignalPlatformOps // Provides fromFuture, and the promise constructors where a promise exists
 {
 
   def fromValue[A](value: A): Val[A] = Val(value)
@@ -222,41 +218,6 @@ with DynamicImportSignalObjectOps // Provides `dynamicImport` method (Scala 3 on
   def fromTry[A](value: Try[A]): Val[A] = Val.fromTry(value)
 
   def fromEither[A](value: Either[Throwable, A]): Val[A] = Val.fromEither(value)
-
-  /** The signal will start with `None`, even if the future is already resolved.
-    * Once the future resolves (or after a minimal async delay if it's already resolved),
-    * the signal's value will be updated to the future's resolved value.
-    */
-  def fromFuture[A](future: => Future[A])(implicit ec: ExecutionContext): Signal[Option[A]] = {
-    fromJsPromise(future.toJSPromise(ec))
-  }
-
-  /** The signal will start with the provided `initial` value, even if the future is already resolved.
-    * Once the future resolves (or after a minimal async delay if it's already resolved),
-    * the signal's value will be updated to the future's resolved value.
-    */
-  def fromFuture[A](future: => Future[A], initial: => A)(implicit ec: ExecutionContext): Signal[A] = {
-    fromJsPromise(future.toJSPromise(ec), initial)
-  }
-
-  /** The signal will start with `None`, even if the promise is already resolved.
-    * Once the promise resolves (or after a minimal async delay if it's already resolved),
-    * the signal's value will be updated to the promise's resolved value.
-    */
-  def fromJsPromise[A](promise: => js.Promise[A]): Signal[Option[A]] = {
-    new JsPromiseSignal(promise)
-  }
-
-  /** The signal will start with the provided `initial` value, even if the promise is already resolved.
-    * Once the promise resolves (or after a minimal async delay if it's already resolved),
-    * the signal's value will be updated to the promise's resolved value.
-    */
-  def fromJsPromise[A](promise: => js.Promise[A], initial: => A): Signal[A] = {
-    new JsPromiseSignal(promise).map {
-      case None => initial
-      case Some(value) => value
-    }
-  }
 
   // TODO[API] do we need this?
   /** A stream from js.Promise that kind-of sort-of behaves like a signal:
@@ -307,7 +268,14 @@ with DynamicImportSignalObjectOps // Provides `dynamicImport` method (Scala 3 on
   def sequence[A](
     signals: Seq[Signal[A]]
   ): Signal[Seq[A]] = {
-    new CombineSignalN[A, Seq[A]](JsArray(signals: _*), _.asScalaJs.toSeq)
+    new CombineSignalN[A, Seq[A]](
+      JsArray(signals: _*),
+      array => {
+        val builder = Seq.newBuilder[A]
+        array.forEach(builder += _)
+        builder.result()
+      }
+    )
   }
 
   @inline def combineSeq[A](signals: Seq[Signal[A]]): Signal[Seq[A]] = sequence(signals)

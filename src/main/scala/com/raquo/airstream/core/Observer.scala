@@ -2,11 +2,13 @@ package com.raquo.airstream.core
 
 import com.raquo.airstream.core.AirstreamError.{ObserverError, ObserverErrorHandlingError}
 import com.raquo.airstream.debug.DebuggableObserver
+import com.raquo.airstream.platform.{JsCallback, PlatformCallbacks, Timers}
 
-import com.raquo.airstream.platform.Timers
 import scala.util.{Failure, Success, Try}
 
-trait Observer[-A] extends Sink[A] with Named with ObserverPlatformOps[A] {
+trait Observer[-A] extends Sink[A] with Named {
+
+  lazy val toJsFn1: JsCallback[A] = PlatformCallbacks.fromFunction(onNext)
 
   /** Note: must not throw! */
   def onNext(nextValue: A): Unit

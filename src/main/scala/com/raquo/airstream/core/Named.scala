@@ -1,6 +1,6 @@
 package com.raquo.airstream.core
 
-import com.raquo.airstream.platform.{UndefOr, undefined}
+import com.raquo.airstream.platform.{undefined, UndefOr}
 
 /** This trait lets the user set an ad-hoc name for this instance. Used for debugging and tracing.
   *
