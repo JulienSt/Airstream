@@ -1,6 +1,6 @@
 package com.raquo.airstream.util
 
-import com.raquo.ew.JsArray
+import com.raquo.airstream.platform.JsArray
 
 class JsPriorityQueue[A](getRank: A => Int) {
 

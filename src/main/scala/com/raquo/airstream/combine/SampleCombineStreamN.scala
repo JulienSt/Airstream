@@ -4,7 +4,7 @@ import com.raquo.airstream.common.{InternalParentObserver, MultiParentStream}
 import com.raquo.airstream.core.{EventStream, Observable, Protected, Signal, Transaction}
 import com.raquo.ew.JsArray
 
-import scala.scalajs.js
+import com.raquo.airstream.platform.{UndefOr, undefined}
 import scala.util.Try
 
 /** This stream emits the combined value when samplingStreams emits.
@@ -25,7 +25,7 @@ class SampleCombineStreamN[A, Out](
 
   override protected val topoRank: Int = Protected.maxTopoRank(samplingStream, sampledSignals) + 1
 
-  private[this] var maybeLastSamplingValue: js.UndefOr[Try[A]] = js.undefined
+  private[this] var maybeLastSamplingValue: UndefOr[Try[A]] = undefined
 
   override protected[this] def inputsReady: Boolean = maybeLastSamplingValue.nonEmpty
 
@@ -67,6 +67,6 @@ class SampleCombineStreamN[A, Out](
 
   override private[airstream] def syncFire(transaction: Transaction): Unit = {
     super.syncFire(transaction)
-    maybeLastSamplingValue = js.undefined // Clean up memory, as we don't need this reference anymore
+    maybeLastSamplingValue = undefined // Clean up memory, as we don't need this reference anymore
   }
 }

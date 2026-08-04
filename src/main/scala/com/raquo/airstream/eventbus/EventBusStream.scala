@@ -2,7 +2,7 @@ package com.raquo.airstream.eventbus
 
 import com.raquo.airstream.common.InternalNextErrorObserver
 import com.raquo.airstream.core.{EventStream, Protected, Transaction, WritableStream}
-import com.raquo.ew.JsArray
+import com.raquo.airstream.platform.JsArray
 
 class EventBusStream[A] private[eventbus] (
   parentDisplayName: => String

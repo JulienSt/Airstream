@@ -5,7 +5,7 @@ import com.raquo.airstream.core.{EventStream, Observable, Protected, SyncObserva
 import com.raquo.airstream.util.JsPriorityQueue
 import com.raquo.ew.JsArray
 
-import scala.scalajs.js
+import com.raquo.airstream.platform.{UndefOr, undefined}
 
 /** Stream that emit events from all of its parents.
   *
@@ -27,7 +27,7 @@ class MergeStream[A](
 
   override protected val topoRank: Int = Protected.maxTopoRank(parents) + 1
 
-  private[this] var lastFiredInTrx: js.UndefOr[Transaction] = js.undefined
+  private[this] var lastFiredInTrx: UndefOr[Transaction] = undefined
 
   private[this] val pendingParentValues: JsPriorityQueue[Observation[A]] = {
     new JsPriorityQueue(observation => Protected.topoRank(observation.observable))
@@ -76,7 +76,7 @@ class MergeStream[A](
 
   override protected[this] def onStop(): Unit = {
     parentObservers.forEach(_.removeFromParent())
-    lastFiredInTrx = js.undefined
+    lastFiredInTrx = undefined
     super.onStop()
   }
 

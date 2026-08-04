@@ -2,7 +2,7 @@ package com.raquo.airstream.status
 
 import com.raquo.airstream.core.{BaseObservable, EventStream, Observable}
 
-import scala.scalajs.js
+import com.raquo.airstream.platform.{UndefOr, undefined}
 
 /** Tracks the status of input and output of operator(stream). See [[Status]]. */
 object AsyncStatusObservable {
@@ -14,7 +14,7 @@ object AsyncStatusObservable {
     // #TODO[Integrity] Are those var-s 100% safe?
     //  I think so, but it wouldn't hurt to test some weird transaction cases
     var ix = 0
-    var maybeLastInput: js.UndefOr[A] = js.undefined
+    var maybeLastInput: UndefOr[A] = undefined
 
     val inputS = parent.map { input =>
       ix = 0
