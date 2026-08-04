@@ -2,7 +2,7 @@ package com.raquo.airstream.timing
 
 import com.raquo.airstream.common.{InternalNextErrorObserver, SingleParentStream}
 import com.raquo.airstream.core.{EventStream, Transaction}
-import com.raquo.ew.JsArray
+import com.raquo.airstream.platform.JsArray
 
 import com.raquo.airstream.platform.{Timers, UndefOr, undefined}
 

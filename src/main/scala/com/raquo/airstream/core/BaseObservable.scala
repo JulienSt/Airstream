@@ -6,7 +6,7 @@ import com.raquo.airstream.flatten.{AllowFlatMap, FlattenStrategy, MergingStrate
 import com.raquo.airstream.map.MapOps
 import com.raquo.airstream.ownership.{Owner, Subscription}
 import com.raquo.airstream.status.{FlatMapStatusObservable, Status}
-import com.raquo.ew.JsArray
+import com.raquo.airstream.platform.JsArray
 
 import scala.annotation.unused
 import com.raquo.airstream.platform.{UndefOr, undefined}
