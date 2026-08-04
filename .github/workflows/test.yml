@@ -35,5 +35,9 @@ jobs:
         run: sbt +test
       - name: Test JavaScript regression checker
         run: python3 -m unittest scripts/tests/test_check_js_regression.py
+      - name: Test Native port diff checker
+        run: python3 -m unittest scripts/tests/test_report_port_diff.py
+      - name: Check Native port review surface
+        run: python3 scripts/report_port_diff.py
       - name: Compare JavaScript build with pre-port Airstream
         run: python3 scripts/check_js_regression.py
