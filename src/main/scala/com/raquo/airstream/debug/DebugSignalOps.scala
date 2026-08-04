@@ -1,9 +1,9 @@
 package com.raquo.airstream.debug
 
+import com.raquo.airstream.platform.DevTools
 import com.raquo.airstream.core.{Named, Signal}
 import com.raquo.airstream.util.always
 
-import scala.scalajs.js
 import scala.util.{Failure, Success, Try}
 
 /** This trait provides Signal-specific debug* methods, e.g.:
@@ -51,7 +51,7 @@ extends DebugOps[Self, A] {
   def debugBreakEvalFromParent(when: Try[A] => Boolean = always): Self[A] = {
     debugSpyEvalFromParent { value =>
       if (when(value)) {
-        js.special.debugger()
+        DevTools.breakpoint()
       }
     }
   }

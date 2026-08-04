@@ -1,9 +1,8 @@
 package com.raquo.airstream.core
 
-import org.scalajs.dom
 
+import com.raquo.airstream.platform.{DevTools, Timers}
 import scala.collection.mutable
-import scala.scalajs.js
 
 sealed abstract class AirstreamError(message: String) extends Throwable(message)
 
@@ -113,18 +112,17 @@ object AirstreamError {
     */
   val consoleErrorCallback: Throwable => Unit = { err =>
     try {
-      dom.console.error(getFullMessage(err) + "\n" + getStackTrace(err, newline = "\n"))
+      DevTools.error(getFullMessage(err) + "\n" + getStackTrace(err, newline = "\n"))
     } catch {
       case err: Throwable =>
         // If you ever hit this, you will _really_ appreciate this printout.
-        dom.console.error("Error in AirstreamError.consoleErrorCallback:")
-        dom.console.error(err)
+        DevTools.error(s"Error in AirstreamError.consoleErrorCallback: $err")
     }
   }
 
   // @TODO[API] Due to browser optimizations, function argument (err) might not be available in the console if it's not used in code. See if we run into this problem in practice.
   val debuggerErrorCallback: Throwable => Unit = { _ =>
-    js.special.debugger()
+    DevTools.breakpoint()
   }
 
   /** Note: this callback is allowed to throw, it is treated specially in
@@ -132,13 +130,13 @@ object AirstreamError {
     * It's useful to fail tests in case of unhandled errors.
     */
   val unsafeRethrowErrorCallback: Throwable => Unit = { err =>
-    dom.console.warn("Using unsafe rethrow error callback. Note: other registered error callbacks might not run. Use with caution.")
+    DevTools.warn("Using unsafe rethrow error callback. Note: other registered error callbacks might not run. Use with caution.")
     throw err
   }
 
   /** The safe way to rethrow an unhandled error */
   val delayedRethrowErrorCallback: Throwable => Unit = { err =>
-    js.timers.setTimeout(0)(throw err)
+    Timers.setTimeout(0)(throw err)
   }
 
   def registerUnhandledErrorCallback(fn: Throwable => Unit): Unit = {
@@ -164,8 +162,8 @@ object AirstreamError {
           // Note: this does not let other error callbacks execute
           throw err
         case err: Throwable =>
-          dom.console.warn("Error processing an unhandled error callback:")
-          js.timers.setTimeout(0)(throw err)
+          DevTools.warn("Error processing an unhandled error callback:")
+          Timers.setTimeout(0)(throw err)
       }
     }
   }
