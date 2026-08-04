@@ -2,8 +2,8 @@ package com.raquo.airstream.timing
 
 import com.raquo.airstream.common.{InternalTryObserver, SingleParentStream}
 import com.raquo.airstream.core.{Observable, Protected, SyncObservable, Transaction}
+import com.raquo.airstream.platform.{undefined, UndefOr}
 
-import com.raquo.airstream.platform.{UndefOr, undefined}
 import scala.util.Try
 
 /** Note: This is generally supposed to be used only with streams as inputs.

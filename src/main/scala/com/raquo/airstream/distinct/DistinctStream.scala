@@ -2,8 +2,8 @@ package com.raquo.airstream.distinct
 
 import com.raquo.airstream.common.{InternalTryObserver, SingleParentStream}
 import com.raquo.airstream.core.{EventStream, Protected, Transaction}
+import com.raquo.airstream.platform.{undefined, UndefOr}
 
-import com.raquo.airstream.platform.{UndefOr, undefined}
 import scala.util.Try
 
 /** Emits only values that are distinct from the last emitted value, according to isSame function */

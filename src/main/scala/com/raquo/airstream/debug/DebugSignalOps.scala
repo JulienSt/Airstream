@@ -1,7 +1,7 @@
 package com.raquo.airstream.debug
 
-import com.raquo.airstream.platform.DevTools
 import com.raquo.airstream.core.{Named, Signal}
+import com.raquo.airstream.platform.DevTools
 import com.raquo.airstream.util.always
 
 import scala.util.{Failure, Success, Try}
