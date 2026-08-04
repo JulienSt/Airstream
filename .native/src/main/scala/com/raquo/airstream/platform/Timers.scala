@@ -57,6 +57,17 @@ object Timers {
         }
     }
 
+    /** The current time in milliseconds.
+      *
+      * Reads the wall clock rather than the pumped one, because a caller asking what time it is wants the real answer.
+      * That makes it the driver's job to pass wall-clock milliseconds to [[runDue]], which is what keeps a deadline and a
+      * reading comparable — and is why the two live in the same object instead of being read wherever they are needed.
+      *
+      * @return
+      *   milliseconds since the epoch
+      */
+    def now(): Double = System.currentTimeMillis().toDouble
+
     /** Forget every waiting callback. Exists for tests, which need to start from a known queue. */
     def clearAll(): Unit = {
         pending.clear()

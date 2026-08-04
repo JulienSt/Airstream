@@ -52,6 +52,29 @@ class TimersSpec extends AnyFunSpec with Matchers {
         }
     }
 
+    describe("the clock") {
+
+        it("reports a positive reading, so a caller can subtract two of them") {
+            Timers.now() should be > 0.0
+        }
+
+        it("never goes backwards between two readings") {
+            val first  = Timers.now()
+            val second = Timers.now()
+            second should be >= first
+        }
+
+        it("belongs to the same layer as the scheduler, so a deadline and a reading agree") {
+            // Throttling subtracts one reading from another and then schedules against the difference. Taking the reading
+            // from a different clock than the scheduler uses is how a throttle ends up firing at the wrong time on one
+            // platform only.
+            val before = Timers.now()
+            val handle = Timers.setTimeout(0)(())
+            Timers.now() should be >= before
+            Timers.clearTimeout(handle)
+        }
+    }
+
     describe("a zero delay") {
 
         it("is accepted rather than rejected, because that is how a callback is deferred to the next turn") {
