@@ -1,7 +1,7 @@
 package com.raquo.airstream.common
 
 import com.raquo.airstream.core.{Protected, Signal, WritableSignal}
-import com.raquo.ew.JsArray
+import com.raquo.airstream.platform.JsArray
 
 /** A simple signal that has multiple parents. */
 trait MultiParentSignal[I, O] extends WritableSignal[O] {

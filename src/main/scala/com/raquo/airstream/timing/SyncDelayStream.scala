@@ -3,7 +3,7 @@ package com.raquo.airstream.timing
 import com.raquo.airstream.common.{InternalTryObserver, SingleParentStream}
 import com.raquo.airstream.core.{Observable, Protected, SyncObservable, Transaction}
 
-import scala.scalajs.js
+import com.raquo.airstream.platform.{UndefOr, undefined}
 import scala.util.Try
 
 /** Note: This is generally supposed to be used only with streams as inputs.
@@ -16,7 +16,7 @@ class SyncDelayStream[A](
   after: Observable[_]
 ) extends SingleParentStream[A, A] with InternalTryObserver[A] with SyncObservable[A] {
 
-  private[this] var maybePendingValue: js.UndefOr[Try[A]] = js.undefined
+  private[this] var maybePendingValue: UndefOr[Try[A]] = undefined
 
   override protected val topoRank: Int = (Protected.topoRank(parent) max Protected.topoRank(after)) + 1
 
@@ -31,7 +31,7 @@ class SyncDelayStream[A](
   override private[airstream] def syncFire(transaction: Transaction): Unit = {
     // dom.console.log(s"> ${this} > syncFire")
     maybePendingValue.foreach { pendingValue =>
-      maybePendingValue = js.undefined
+      maybePendingValue = undefined
       fireTry(pendingValue, transaction)
     }
   }

@@ -1,7 +1,7 @@
 package com.raquo.airstream.core
 
 import scala.annotation.nowarn
-import scala.scalajs.js
+import com.raquo.airstream.platform.{UndefOr, undefined}
 import scala.util.{Failure, Success, Try}
 
 /** This trait exists to provide private functionality that can not be covariant in A.
@@ -10,7 +10,7 @@ import scala.util.{Failure, Success, Try}
   */
 trait WritableSignal[A] extends Signal[A] with WritableObservable[A] {
 
-  protected var maybeLastSeenCurrentValue: js.UndefOr[Try[A]] = js.undefined
+  protected var maybeLastSeenCurrentValue: UndefOr[Try[A]] = undefined
 
   protected def setCurrentValue(newValue: Try[A]): Unit = {
     val isInitial = maybeLastSeenCurrentValue.isEmpty
