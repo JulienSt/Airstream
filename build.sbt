@@ -157,7 +157,17 @@ lazy val root = project
   .aggregate(airstream.js, airstream.jvm, airstream.native)
   .settings(
     name := "airstream-root",
-    publish / skip := true
+    publish / skip := true,
+    Compile / sources := Seq.empty,
+    Test / sources := Seq.empty,
+    Test / test / aggregate := false,
+    Test / test := Def
+      .sequential(
+        airstream.js / Test / test,
+        airstream.jvm / Test / test,
+        airstream.native / Test / test
+      )
+      .value
   )
 
 lazy val airstream = crossProject(JSPlatform, JVMPlatform, NativePlatform)
@@ -251,6 +261,7 @@ lazy val airstream = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   )
   .jvmSettings(nonJavaScriptSettings)
   .nativeSettings(nonJavaScriptSettings)
+// No MiMa here: Native and JVM have no previously published binary contract.
 
 // https://github.com/JetBrains/sbt-ide-settings
 SettingKey[Seq[File]]("ide-excluded-directories").withRank(KeyRanks.Invisible) := Seq(
