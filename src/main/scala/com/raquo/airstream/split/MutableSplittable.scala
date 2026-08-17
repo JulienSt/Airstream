@@ -1,9 +1,8 @@
 package com.raquo.airstream.split
 
-import com.raquo.ew.JsArray
+import com.raquo.airstream.platform.{JsArray, ScalaJsArray}
 
 import scala.collection.mutable
-import scala.scalajs.js
 
 trait MutableSplittable[M[_]] {
 
@@ -54,17 +53,17 @@ object MutableSplittable {
     }
   }
 
-  implicit object ScalaJsArrayMutableSplittable extends MutableSplittable[js.Array] {
+  implicit object ScalaJsArrayMutableSplittable extends MutableSplittable[ScalaJsArray] {
 
-    override val splittable: Splittable[js.Array] = Splittable.ScalaJsArraySplittable
+    override val splittable: Splittable[ScalaJsArray] = Splittable.ScalaJsArraySplittable
 
-    override def isEmpty[A](items: js.Array[A]): Boolean = items.length == 0
+    override def isEmpty[A](items: ScalaJsArray[A]): Boolean = items.length == 0
 
-    override def size[A](items: js.Array[A]): Int = items.length
+    override def size[A](items: ScalaJsArray[A]): Int = items.length
 
-    override def getByIndex[A](items: js.Array[A], index: Int): A = items(index)
+    override def getByIndex[A](items: ScalaJsArray[A], index: Int): A = items(index)
 
-    override def updateAtIndex[A](items: js.Array[A], index: Int, newItem: A): Unit = {
+    override def updateAtIndex[A](items: ScalaJsArray[A], index: Int, newItem: A): Unit = {
       items.update(index, newItem)
     }
   }

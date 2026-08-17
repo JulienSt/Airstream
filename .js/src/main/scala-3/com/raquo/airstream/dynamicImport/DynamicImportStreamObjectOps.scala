@@ -2,6 +2,7 @@ package com.raquo.airstream.dynamicImport
 
 import annotation.nowarn
 import com.raquo.airstream.core.{EventStream, Signal}
+import com.raquo.airstream.timing.JsPromiseStream
 
 import scala.scalajs.js
 
@@ -17,6 +18,6 @@ trait DynamicImportStreamObjectOps { this: EventStream.type =>
     */
   @nowarn("msg=New anonymous class definition will be duplicated at each inline site") // `promise :=>` Function0 anon class – NBD
   inline def dynamicImport[R](inline resource: R): EventStream[R] =
-    EventStream.fromJsPromise(js.dynamicImport(resource))
+    new JsPromiseStream(js.dynamicImport(resource), emitOnce = false)
 
 }

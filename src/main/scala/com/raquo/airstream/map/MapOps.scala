@@ -6,7 +6,7 @@ import com.raquo.airstream.core.{EventStream, Observable, Signal}
   * A base trait for observables that have mapping operators such as [[map]] and [[mapTo]].
   *
   * @tparam Self The kind of observable that this is (e.g. [[EventStream]], [[Signal]], or [[com.raquo.airstream.state.StrictSignal]]).
-  * @tparam A    The type of value emitted by this observable (e.g. [[org.scalajs.dom.MouseEvent]] or [[Int]]).
+  * @tparam A    The type of value emitted by this observable (e.g. a mouse event or [[Int]]).
   */
 trait MapOps[+Self[+_], +A] {
 

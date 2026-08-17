@@ -2,7 +2,7 @@ package com.raquo.airstream.flatten
 
 import com.raquo.airstream.common.InternalNextErrorObserver
 import com.raquo.airstream.core.{EventStream, InternalObserver, Observable, Protected, Signal, Transaction, WritableStream}
-import com.raquo.ew.JsArray
+import com.raquo.airstream.platform.JsArray
 
 import scala.util.{Failure, Success}
 

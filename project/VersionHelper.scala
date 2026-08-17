@@ -48,7 +48,7 @@ object VersionHelper {
     } else {
       val dirtyPart    = if (out.isDirty()) out.dirtySuffix.value else ""
       val snapshotPart = if (dynverSonatypeSnapshots && out.isSnapshot()) "-SNAPSHOT" else ""
-      val isCI         = sys.env.get("CI").exists(_.toBoolean)
+      val isCI         = EnvironmentFlags.isCi(sys.env)
       (if (out.ref.dropPrefix.matches(""".*-(M|RC)\d+$""")) {
         // tag is a milestone or release candidate, therefore we increase the version after the -RC or -M (e.g. -RC1 becomes -RC2)
         // it does not matter on which branch we are on

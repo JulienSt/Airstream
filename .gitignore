@@ -21,6 +21,8 @@ yarn.lock
 
 .downloads
 
+__pycache__/
+
 # Agents
 .claude/settings.local.json
 .claude/worktrees/

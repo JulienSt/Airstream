@@ -7,7 +7,6 @@ import com.raquo.airstream.distinct.DistinctOps.DistinctOp
 import com.raquo.airstream.timing.SyncDelayStream
 
 import scala.collection.mutable
-import scala.scalajs.js
 import scala.util.Try
 
 /** Broadly similar to `parent.map(_.map(project))`, but the `project` part
@@ -81,7 +80,9 @@ class SplitSignal[M[_], Input, Output, Key](
     // This ensures that previously memoized values are forgotten once the source observables stops emitting their inputs
     val nextKeys = mutable.HashSet.empty[Key] // HashSet has desirable performance tradeoffs
 
-    val duplicateKeys = if (duplicateKeysConfig.shouldWarn) js.Array[Key]() else null
+    // A plain buffer rather than the platform array: this is a warning path, allocated only when warnings are on,
+    // and it wants contains/nonEmpty/mkString rather than the narrow surface the reactive core needs.
+    val duplicateKeys = if (duplicateKeysConfig.shouldWarn) mutable.ListBuffer[Key]() else null
 
     val nextOutputs = splittable.map(
       nextInputs,
@@ -90,7 +91,7 @@ class SplitSignal[M[_], Input, Output, Key](
 
         if (duplicateKeysConfig.shouldWarn && nextKeys.contains(memoizedKey)) {
           if (!duplicateKeys.contains(memoizedKey)) { // #Note: this uses scala == key comparison here, as desired
-            duplicateKeys.push(memoizedKey)
+            duplicateKeys += memoizedKey
           }
         }
 

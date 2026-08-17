@@ -1,11 +1,10 @@
 package com.raquo.airstream.debug
 
 import com.raquo.airstream.core.{Named, Observable}
+import com.raquo.airstream.platform.DevTools
 import com.raquo.airstream.util.always
-import org.scalajs.dom
 
 import scala.annotation.nowarn
-import scala.scalajs.js
 import scala.util.{Failure, Success, Try}
 
 /** This trait provides debug* methods for observables, e.g.:
@@ -219,9 +218,9 @@ trait DebugOps[+Self[+_] <: Named, +A] {
     if (useJsLogger) {
       // This is useful if you're emitting native JS objects, they will be printed to the console nicer
       if (value.isDefined) {
-        dom.console.log(prefix, value.get.asInstanceOf[js.Any])
+        DevTools.log(prefix, value.get)
       } else {
-        dom.console.log(prefix)
+        DevTools.log(prefix, ())
       }
     } else {
       if (value.isDefined) {
@@ -240,7 +239,7 @@ trait DebugOps[+Self[+_] <: Named, +A] {
   def debugBreak(when: Try[A] => Boolean = always): Self[A] = {
     debugSpy { value =>
       if (when(value)) {
-        js.special.debugger()
+        DevTools.breakpoint()
       }
     }
   }
@@ -251,7 +250,7 @@ trait DebugOps[+Self[+_] <: Named, +A] {
   def debugBreakEvents(when: A => Boolean = always): Self[A] = {
     debugSpyEvents { ev =>
       if (when(ev)) {
-        js.special.debugger()
+        DevTools.breakpoint()
       }
     }
   }
@@ -262,7 +261,7 @@ trait DebugOps[+Self[+_] <: Named, +A] {
   def debugBreakErrors(when: Throwable => Boolean = always): Self[A] = {
     debugSpyErrors { err =>
       if (when(err)) {
-        js.special.debugger()
+        DevTools.breakpoint()
       }
     }
   }
@@ -270,15 +269,15 @@ trait DebugOps[+Self[+_] <: Named, +A] {
   /** Trigger JS debugger when the observable starts and stops */
   def debugBreakLifecycle: Self[A] = {
     debugSpyLifecycle(
-      onStart = _ => js.special.debugger(),
-      onStop = () => js.special.debugger()
+      onStart = _ => DevTools.breakpoint(),
+      onStop = () => DevTools.breakpoint()
     )
   }
 
   /** Trigger JS debugger when the observable starts */
   def debugBreakStarts: Self[A] = {
     debugSpyLifecycle(
-      onStart = _ => js.special.debugger(),
+      onStart = _ => DevTools.breakpoint(),
       onStop = () => ()
     )
   }
@@ -287,7 +286,7 @@ trait DebugOps[+Self[+_] <: Named, +A] {
   def debugBreakStops: Self[A] = {
     debugSpyLifecycle(
       onStart = _ => (),
-      onStop = () => js.special.debugger()
+      onStop = () => DevTools.breakpoint()
     )
   }
 

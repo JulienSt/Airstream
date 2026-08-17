@@ -1,6 +1,6 @@
 package com.raquo.airstream.core
 
-import com.raquo.ew.JsArray
+import com.raquo.airstream.platform.JsArray
 
 import scala.annotation.{implicitNotFound, unused}
 import scala.util.Try

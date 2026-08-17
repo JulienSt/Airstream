@@ -2,7 +2,7 @@ package com.raquo.airstream.combine
 
 import com.raquo.airstream.common.{InternalParentObserver, MultiParentSignal}
 import com.raquo.airstream.core.{Protected, Signal}
-import com.raquo.ew.JsArray
+import com.raquo.airstream.platform.JsArray
 
 import scala.util.Try
 

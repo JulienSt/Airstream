@@ -4,12 +4,13 @@ import com.raquo.airstream.UnitSpec
 import com.raquo.airstream.core.{EventStream, Observable, Signal}
 import com.raquo.airstream.eventbus.EventBus
 import com.raquo.airstream.state.Var
-import scalajs.concurrent.JSExecutionContext.Implicits.queue
 
 import scala.annotation.nowarn
-import scala.concurrent.Future
+import scala.concurrent.{ExecutionContext, Future}
 
 class SyntaxSpec extends UnitSpec {
+
+  implicit private val executionContext: ExecutionContext = ExecutionContext.parasitic
 
   case class Foo(id: Int, label: String)
 

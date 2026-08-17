@@ -1,7 +1,7 @@
 package com.raquo.airstream.core
 
 import com.raquo.airstream.ownership.{Owner, Subscription}
-import com.raquo.ew.JsArray
+import com.raquo.airstream.platform.JsArray
 
 import scala.util.Try
 

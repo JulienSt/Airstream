@@ -2,9 +2,8 @@ package com.raquo.airstream.timing
 
 import com.raquo.airstream.common.{InternalTryObserver, SingleParentStream}
 import com.raquo.airstream.core.{EventStream, Transaction}
+import com.raquo.airstream.platform.{undefined, Timers, UndefOr}
 
-import scala.scalajs.js
-import scala.scalajs.js.timers.SetTimeoutHandle
 import scala.util.Try
 
 /** [[ThrottleStream]] emits at most one event per `intervalMs`.
@@ -24,42 +23,42 @@ class ThrottleStream[A](
   leading: Boolean
 ) extends SingleParentStream[A, A] with InternalTryObserver[A] {
 
-  private[this] var lastEmittedEventMs: js.UndefOr[Double] = js.undefined
+  private[this] var lastEmittedEventMs: UndefOr[Double] = undefined
 
   /** Note: we unset this after it's done */
-  private[this] var maybeFirstTimeoutHandle: js.UndefOr[SetTimeoutHandle] = js.undefined
+  private[this] var maybeFirstTimeoutHandle: UndefOr[Timers.TimerHandle] = undefined
 
-  private[this] var maybeLastTimeoutHandle: js.UndefOr[SetTimeoutHandle] = js.undefined
+  private[this] var maybeLastTimeoutHandle: UndefOr[Timers.TimerHandle] = undefined
 
   override protected val topoRank: Int = 1
 
   override protected def onTry(nextValue: Try[A], transaction: Transaction): Unit = {
 
-    val nowMs = js.Date.now()
+    val nowMs = Timers.now()
 
     val remainingMs = lastEmittedEventMs.fold(
       ifEmpty = if (leading) 0 else intervalMs
     ) {
       lastEventMs =>
         val msSinceLastEvent = nowMs - lastEventMs
-        js.Math.max(intervalMs - msSinceLastEvent.toInt, 0)
+        math.max(intervalMs - msSinceLastEvent.toInt, 0)
     }
 
     if (leading && lastEmittedEventMs.isEmpty) {
       // #Note lastEmittedEventMs is an approximation (compare to the `else` case), I hope that doesn't bite us
       lastEmittedEventMs = nowMs
 
-      maybeFirstTimeoutHandle = js.timers.setTimeout(0) {
-        maybeFirstTimeoutHandle = js.undefined
+      maybeFirstTimeoutHandle = Timers.setTimeout(0) {
+        maybeFirstTimeoutHandle = undefined
         // println(s"> init trx from leading ThrottleEventStream.onTry($nextValue)")
         Transaction(fireTry(nextValue, _))
       }
 
     } else {
-      maybeLastTimeoutHandle.foreach(js.timers.clearTimeout)
+      maybeLastTimeoutHandle.foreach(Timers.clearTimeout)
 
-      maybeLastTimeoutHandle = js.timers.setTimeout(remainingMs.toDouble) {
-        lastEmittedEventMs = js.Date.now() // @TODO Should this fire now, or inside the transaction below?
+      maybeLastTimeoutHandle = Timers.setTimeout(remainingMs.toDouble) {
+        lastEmittedEventMs = Timers.now() // @TODO Should this fire now, or inside the transaction below?
         // println(s"> init trx from ThrottleEventStream.onTry($nextValue)")
         Transaction(fireTry(nextValue, _))
       }
@@ -67,11 +66,11 @@ class ThrottleStream[A](
   }
 
   override protected[this] def onStop(): Unit = {
-    maybeFirstTimeoutHandle.foreach(js.timers.clearTimeout)
-    maybeLastTimeoutHandle.foreach(js.timers.clearTimeout)
-    maybeFirstTimeoutHandle = js.undefined
-    maybeLastTimeoutHandle = js.undefined
-    lastEmittedEventMs = js.undefined
+    maybeFirstTimeoutHandle.foreach(Timers.clearTimeout)
+    maybeLastTimeoutHandle.foreach(Timers.clearTimeout)
+    maybeFirstTimeoutHandle = undefined
+    maybeLastTimeoutHandle = undefined
+    lastEmittedEventMs = undefined
     super.onStop()
   }
 

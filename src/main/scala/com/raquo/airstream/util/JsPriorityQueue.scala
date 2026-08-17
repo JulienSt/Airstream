@@ -1,6 +1,6 @@
 package com.raquo.airstream.util
 
-import com.raquo.ew.JsArray
+import com.raquo.airstream.platform.JsArray
 
 class JsPriorityQueue[A](getRank: A => Int) {
 
@@ -40,5 +40,9 @@ class JsPriorityQueue[A](getRank: A => Int) {
 
   @inline def nonEmpty: Boolean = !isEmpty
 
-  def debugQueue: List[A] = queue.asScalaJs.toList
+  def debugQueue: List[A] = {
+    val builder = List.newBuilder[A]
+    queue.forEach(builder += _)
+    builder.result()
+  }
 }

@@ -5,11 +5,11 @@ import com.raquo.airstream.core.{Observer, Signal, Transaction}
 import com.raquo.airstream.eventbus.EventBus
 import com.raquo.airstream.fixtures.{Effect, TestableOwner}
 import com.raquo.airstream.ownership.{DynamicOwner, DynamicSubscription, ManualOwner, Subscription}
+import com.raquo.airstream.platform.JsArray
 import com.raquo.airstream.split.{DuplicateKeysConfig, KeyedStrictSignal}
 import com.raquo.airstream.split.KeyedDerivedVar.varWithKey
 import com.raquo.airstream.split.KeyedStrictSignal.withKey
 import com.raquo.airstream.state.Var
-import com.raquo.ew.JsArray
 import org.scalatest.{Assertion, BeforeAndAfter}
 
 import scala.collection.mutable
@@ -689,7 +689,9 @@ class SplitVarSpec extends UnitSpec with BeforeAndAfter {
 
     // --
 
-    arr.reverse()
+    val first = arr(0)
+    arr.update(0, arr(1))
+    arr.update(1, first)
 
     myVar.set(arr)
 
@@ -702,7 +704,7 @@ class SplitVarSpec extends UnitSpec with BeforeAndAfter {
     // --
 
     arr.update(0, Foo("b", 2))
-    arr.pop()
+    arr.length = arr.length - 1
 
     myVar.set(arr)
 

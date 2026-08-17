@@ -1,7 +1,7 @@
 package com.raquo.airstream.ownership
 
 import com.raquo.airstream.core.Named
-import com.raquo.ew.JsArray
+import com.raquo.airstream.platform.JsArray
 
 import scala.annotation.unused
 

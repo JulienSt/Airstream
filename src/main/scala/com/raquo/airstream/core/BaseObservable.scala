@@ -5,11 +5,11 @@ import com.raquo.airstream.distinct.DistinctOps
 import com.raquo.airstream.flatten.{AllowFlatMap, FlattenStrategy, MergingStrategy, SwitchingStrategy}
 import com.raquo.airstream.map.MapOps
 import com.raquo.airstream.ownership.{Owner, Subscription}
+import com.raquo.airstream.platform.{undefined, UndefOr}
+import com.raquo.airstream.platform.JsArray
 import com.raquo.airstream.status.{FlatMapStatusObservable, Status}
-import com.raquo.ew.JsArray
 
 import scala.annotation.unused
-import scala.scalajs.js
 import scala.util.Try
 
 /** This trait represents a reactive value that can be subscribed to.
@@ -226,7 +226,7 @@ with DebugOps[Self, A] {
   /** Observer removals scheduled to run as soon as this observable's event propagation finishes.
     * Only put calls to `removeInternalObserverNow` and `removeExternalObserverNow` here, no custom logic.
     */
-  protected var maybePendingObserverRemovals: js.UndefOr[JsArray[() => Unit]] = js.undefined
+  protected var maybePendingObserverRemovals: UndefOr[JsArray[() => Unit]] = undefined
 
   protected def getOrCreatePendingObserverRemovals: JsArray[() => Unit] = {
     maybePendingObserverRemovals.getOrElse {
