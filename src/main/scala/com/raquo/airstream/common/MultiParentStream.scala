@@ -1,7 +1,7 @@
 package com.raquo.airstream.common
 
 import com.raquo.airstream.core.{Observable, Protected, WritableStream}
-import com.raquo.ew.JsArray
+import com.raquo.airstream.platform.JsArray
 
 /** A simple stream that has multiple parents. */
 trait MultiParentStream[I, O] extends WritableStream[O] {

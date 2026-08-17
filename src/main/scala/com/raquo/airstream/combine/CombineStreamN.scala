@@ -2,9 +2,9 @@ package com.raquo.airstream.combine
 
 import com.raquo.airstream.common.{InternalParentObserver, MultiParentStream}
 import com.raquo.airstream.core.{EventStream, Observable, Protected}
-import com.raquo.ew.JsArray
+import com.raquo.airstream.platform.{undefined, UndefOr}
+import com.raquo.airstream.platform.JsArray
 
-import scala.scalajs.js
 import scala.util.Try
 
 /**
@@ -25,7 +25,7 @@ class CombineStreamN[A, Out](
 
   override protected val topoRank: Int = Protected.maxTopoRank(parents) + 1
 
-  private[this] val maybeLastParentValues: JsArray[js.UndefOr[Try[A]]] = parents.map(_ => js.undefined)
+  private[this] val maybeLastParentValues: JsArray[UndefOr[Try[A]]] = parents.map(_ => undefined)
 
   override protected[this] val parentObservers: JsArray[InternalParentObserver[_]] = {
     parents.mapWithIndex { (parent, ix) =>

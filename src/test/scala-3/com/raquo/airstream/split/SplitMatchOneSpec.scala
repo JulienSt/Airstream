@@ -6,7 +6,6 @@ import com.raquo.airstream.fixtures.{Effect, TestableOwner}
 import com.raquo.airstream.state.Var
 
 import scala.collection.{immutable, mutable}
-import scala.scalajs.js
 import com.raquo.airstream.ShouldSyntax.shouldBeEmpty
 
 class SplitMatchOneSpec extends UnitSpec {

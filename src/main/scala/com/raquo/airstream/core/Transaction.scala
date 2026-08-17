@@ -3,11 +3,11 @@ package com.raquo.airstream.core
 import com.raquo.airstream.combine.MergeStream
 import com.raquo.airstream.core.AirstreamError.TransactionDepthExceeded
 import com.raquo.airstream.custom.CustomSource
+import com.raquo.airstream.platform.{JsArray, JsMap}
+import com.raquo.airstream.platform.{undefined, UndefOr}
 import com.raquo.airstream.util.JsPriorityQueue
-import com.raquo.ew.{JsArray, JsMap}
 
 import scala.annotation.tailrec
-import scala.scalajs.js
 
 /** Transaction is a moment in time during which Airstream guarantees no FRP glitches.
   *
@@ -35,7 +35,7 @@ class Transaction(private[Transaction] var code: Transaction => Any) {
     *
     * Corollary: An Observable that is dequeue-d from here does not synchronously depend on any other pending observables
     */
-  private[this] var maybePendingObservables: js.UndefOr[JsPriorityQueue[SyncObservable[_]]] = js.undefined
+  private[this] var maybePendingObservables: UndefOr[JsPriorityQueue[SyncObservable[_]]] = undefined
 
   /**
     * Note: The transaction may be _actually scheduled_ one layer deeper
@@ -298,7 +298,7 @@ object Transaction {
       transaction.code = throwDeadTrxError // stop holding up `trx` contents in memory
 
       val maybeNextTransaction = peekStack()
-      if (maybeNextTransaction == js.undefined) {
+      if (maybeNextTransaction == undefined) {
         if (children.size > 0) {
           // dom.console.log(s"Stack is empty but children remain: ${children.map(t => (t._1.id, t._2.map(_.id)))}")
           var numChildren = 0
@@ -318,12 +318,12 @@ object Transaction {
     @tailrec def putNextTransactionOnStack(doneTransaction: Transaction): Unit = {
       // We use depth-first because of https://github.com/raquo/Airstream/issues/39
       val maybeNextChildTrx = dequeueChild(parent = doneTransaction)
-      if (maybeNextChildTrx == js.undefined) {
+      if (maybeNextChildTrx == undefined) {
         // No children, this transaction is truly done now, remove it from the stack.
         popStack()
         // If any transactions left in the stack, recurse
         val maybeParentTransaction = peekStack()
-        if (maybeParentTransaction != js.undefined) {
+        if (maybeParentTransaction != undefined) {
           val parentTransaction = maybeParentTransaction.asInstanceOf[Transaction]
           putNextTransactionOnStack(doneTransaction = parentTransaction)
         }
@@ -336,14 +336,14 @@ object Transaction {
     }
 
     /** Returns the top of the stack, i.e. the currently executing transaction, if any. */
-    def peekStack(): js.UndefOr[Transaction] = {
+    def peekStack(): UndefOr[Transaction] = {
       // in Javascript, if array is empty, this does not fail, but instead returns `undefined`.
       stack(0)
     }
 
     def isClearState: Boolean = stack.length == 0 && children.size == 0
 
-    private def maybeChildrenFor(transaction: Transaction): js.UndefOr[JsArray[Transaction]] = {
+    private def maybeChildrenFor(transaction: Transaction): UndefOr[JsArray[Transaction]] = {
       children.get(transaction)
     }
 
@@ -351,7 +351,7 @@ object Transaction {
       stack.unshift(transaction)
     }
 
-    private def popStack(): js.UndefOr[Transaction] = {
+    private def popStack(): UndefOr[Transaction] = {
       // JsArray.shift returns `undefined` if array is empty
       stack.shift()
     }
@@ -367,7 +367,7 @@ object Transaction {
       }
     }
 
-    private def dequeueChild(parent: Transaction): js.UndefOr[Transaction] = {
+    private def dequeueChild(parent: Transaction): UndefOr[Transaction] = {
       // println(s"dequeueChild parent = ${parent.id}")
       val maybeParentChildren = maybeChildrenFor(parent)
       maybeParentChildren.filter(_.length > 0).map { parentChildren =>
@@ -386,9 +386,9 @@ object Transaction {
 
   private[core] def isClearState: Boolean = pendingTransactions.isClearState
 
-  // private var maybeCurrentTransaction: js.UndefOr[Transaction] = js.undefined
+  // private var maybeCurrentTransaction: UndefOr[Transaction] = undefined
 
-  private[airstream] def currentTransaction(): js.UndefOr[Transaction] = pendingTransactions.peekStack()
+  private[airstream] def currentTransaction(): UndefOr[Transaction] = pendingTransactions.peekStack()
 
   /** #Warning: you MUST call `done(trx)` after calling `run(trx)`! */
   private def run(transaction: Transaction): Unit = {
@@ -409,7 +409,7 @@ object Transaction {
       //  iff `code` throws AND the transaction was created while no other transaction is running
       //  This is not very predictable, so we should fix it.
       // println(s"--END ${transaction}")
-      // maybeCurrentTransaction = js.undefined
+      // maybeCurrentTransaction = undefined
     }
   }
 

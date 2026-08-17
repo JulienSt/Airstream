@@ -7,21 +7,18 @@ import com.raquo.airstream.custom.{CustomSource, CustomStreamSource}
 import com.raquo.airstream.custom.CustomSource._
 import com.raquo.airstream.debug.{Debugger, DebuggerStream}
 import com.raquo.airstream.distinct.{DistinctOps, DistinctStream}
-import com.raquo.airstream.dynamicImport.{DynamicImportStreamObjectOps, DynamicImportStreamOps}
 import com.raquo.airstream.eventbus.EventBus
 import com.raquo.airstream.extensions._
 import com.raquo.airstream.javaflow.FlowPublisherStream
 import com.raquo.airstream.map.{MapOps, MapStream}
 import com.raquo.airstream.misc._
+import com.raquo.airstream.platform.{JsArray, JsCallback, PlatformCallbacks}
 import com.raquo.airstream.split.SplittableOneStream
 import com.raquo.airstream.status.{AsyncStatusObservable, Status}
 import com.raquo.airstream.timing._
-import com.raquo.ew.JsArray
 
 import java.util.concurrent.Flow
 import scala.concurrent.{ExecutionContext, Future}
-import scala.scalajs.js
-import scala.scalajs.js.JSConverters._
 import scala.util.{Success, Try}
 
 trait EventStream[+A]
@@ -29,7 +26,7 @@ extends Observable[A]
 with BaseObservable[EventStream, A]
 with EventSource[A]
 with CombineStreamOps[A] // combineWith, combineWithFn, withCurrentValueOf, sample
-with DynamicImportStreamOps[A] // dynamicImport (Scala 3 only)
+with EventStreamInstancePlatformOps[A] // dynamicImport on platforms that provide a module loader
 {
 
   /** See more map-like operators in [[MapOps]]
@@ -342,8 +339,14 @@ with DynamicImportStreamOps[A] // dynamicImport (Scala 3 only)
 
 object EventStream
 extends CombineStreamObjectOps
-with DynamicImportStreamObjectOps // Provides `dynamicImport` method (Scala 3 only)
+with EventStreamPlatformOps // Provides fromFuture, and the promise constructors where a promise exists
 {
+
+  /** Create a stream and a platform callback that emits into it. */
+  def withJsCallback[A]: (EventStream[A], JsCallback[A]) = {
+    val bus = new EventBus[A]
+    (bus.events, PlatformCallbacks.fromFunction(bus.writer.onNext))
+  }
 
   /** Event stream that never emits anything */
   val empty: EventStream[Nothing] = {
@@ -402,14 +405,6 @@ with DynamicImportStreamObjectOps // Provides `dynamicImport` method (Scala 3 on
     )
   }
 
-  def fromFuture[A](future: => Future[A], emitOnce: Boolean = false)(implicit ec: ExecutionContext): EventStream[A] = {
-    fromJsPromise(future.toJSPromise(ec), emitOnce)
-  }
-
-  def fromJsPromise[A](promise: => js.Promise[A], emitOnce: Boolean = false): EventStream[A] = {
-    new JsPromiseStream[A](promise, emitOnce)
-  }
-
   /** Create a stream from a [[java.util.concurrent.Flow.Publisher]]
     *  - Use this to bring in events from other streaming libraries
     *    that can provide a `Flow.Publisher`, such as FS2 an Monix.
@@ -463,12 +458,6 @@ with DynamicImportStreamObjectOps // Provides `dynamicImport` method (Scala 3 on
     (bus.events, () => bus.writer.onNext(()))
   }
 
-  /** Create a stream and a JS callback that, when fired, makes that stream emit. */
-  def withJsCallback[A]: (EventStream[A], js.Function1[A, Unit]) = {
-    val bus = new EventBus[A]
-    (bus.events, bus.writer.onNext)
-  }
-
   /** Create a stream and an observer that, when receiving an event or an error, makes that stream emit. */
   def withObserver[A]: (EventStream[A], Observer[A]) = {
     val bus = new EventBus[A]
@@ -495,7 +484,14 @@ with DynamicImportStreamObjectOps // Provides `dynamicImport` method (Scala 3 on
   }
 
   def sequence[A](streams: Seq[EventStream[A]]): EventStream[Seq[A]] = {
-    new CombineStreamN[A, Seq[A]](JsArray(streams: _*), _.asScalaJs.toSeq)
+    new CombineStreamN[A, Seq[A]](
+      JsArray(streams: _*),
+      values => {
+        val result = Seq.newBuilder[A]
+        values.forEach(value => { result += value; () })
+        result.result()
+      }
+    )
   }
 
   @inline def combineSeq[A](streams: Seq[EventStream[A]]): EventStream[Seq[A]] = sequence(streams)

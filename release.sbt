@@ -2,20 +2,20 @@ name := "Airstream"
 
 normalizedName := "airstream"
 
-organization := "com.raquo"
+ThisBuild / organization := "com.raquo"
 
-homepage := Some(url("https://github.com/raquo/Airstream"))
+ThisBuild / homepage := Some(url("https://github.com/raquo/Airstream"))
 
-licenses += ("MIT", url("https://github.com/raquo/Airstream/blob/master/LICENSE.md"))
+ThisBuild / licenses += ("MIT", url("https://github.com/raquo/Airstream/blob/master/LICENSE.md"))
 
-scmInfo := Some(
+ThisBuild / scmInfo := Some(
   ScmInfo(
     url("https://github.com/raquo/Airstream"),
     "scm:git@github.com/raquo/Airstream.git"
   )
 )
 
-developers := List(
+ThisBuild / developers := List(
   Developer(
     id = "raquo",
     name = "Nikita Gazarov",
@@ -24,6 +24,6 @@ developers := List(
   )
 )
 
-(Test / publishArtifact) := false
+ThisBuild / Test / publishArtifact := false
 
-pomIncludeRepository := { _ => false }
+ThisBuild / pomIncludeRepository := { _ => false }

@@ -1,10 +1,9 @@
 package com.raquo.airstream.debug
 
 import com.raquo.airstream.core.Observer
+import com.raquo.airstream.platform.DevTools
 import com.raquo.airstream.util.always
-import org.scalajs.dom
 
-import scala.scalajs.js
 import scala.util.{Failure, Success, Try}
 
 /** This implicit class provides debug* methods for observers.
@@ -98,7 +97,7 @@ class DebuggableObserver[A](
     val prefix = s"${observer.displayName} [$action]:"
     if (useJsLogger) {
       // This is useful if you're listening for native JS objects, they will be printed to the console nicer
-      dom.console.log(prefix, value.asInstanceOf[js.Any])
+      DevTools.log(prefix, value)
     } else {
       println(s"$prefix $value")
     }
@@ -110,7 +109,7 @@ class DebuggableObserver[A](
   def debugBreak(when: Try[A] => Boolean = always): Observer[A] = {
     debugSpy { value =>
       if (when(value)) {
-        js.special.debugger()
+        DevTools.breakpoint()
       }
     }
   }
@@ -119,7 +118,7 @@ class DebuggableObserver[A](
   def debugBreakEvents(when: A => Boolean = always): Observer[A] = {
     debugSpyEvents { ev =>
       if (when(ev)) {
-        js.special.debugger()
+        DevTools.breakpoint()
       }
     }
   }
@@ -128,7 +127,7 @@ class DebuggableObserver[A](
   def debugBreakErrors(when: Throwable => Boolean = always): Observer[A] = {
     debugSpyErrors { err =>
       if (when(err)) {
-        js.special.debugger()
+        DevTools.breakpoint()
       }
     }
   }

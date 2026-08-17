@@ -24,6 +24,15 @@ Note that existing tests print this compiler warning in Scala 3:
 
 This is expected. Ideally I would assert that this warning exists instead of printing it, but I don't think that's possible. I don't want to hide such warnings wholesale, but suggestions for improvement are welcome.
 
+## Platform source sets
+
+Platform differences live in the build, not in the code. Platform-dependent decisions belong in the
+corresponding `.js`, `.native`, or future JVM source file. Shared sources must read as if only one platform
+existed.
+
+Run `python3 scripts/check_platform_boundaries.py` before submitting a cross-platform change. The check
+rejects runtime platform probes and direct Scala.js or Scala Native APIs in shared production sources.
+
 
 ## N-Generators
 

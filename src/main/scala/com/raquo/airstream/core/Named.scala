@@ -1,6 +1,6 @@
 package com.raquo.airstream.core
 
-import scala.scalajs.js
+import com.raquo.airstream.platform.{undefined, UndefOr}
 
 /** This trait lets the user set an ad-hoc name for this instance. Used for debugging and tracing.
   *
@@ -13,7 +13,7 @@ trait Named {
     * Airstream uses this in `debugLog*` methods. In the future, we will expand on this.
     * #TODO[Debug] We don't use this to its full potential yet.
     */
-  protected[this] var maybeDisplayName: js.UndefOr[String] = js.undefined
+  protected[this] var maybeDisplayName: UndefOr[String] = undefined
 
   protected[this] def displayClassName: String = getClass.getSimpleName
 

@@ -1,0 +1,5 @@
+# Concurrent nativeLink tasks hit Java heap space at 1G; SplitMatchOneSpec otherwise hits Recursion limit exceeded.
+-Xms512M
+-Xmx4G
+-Xss4M
+-XX:+UseG1GC

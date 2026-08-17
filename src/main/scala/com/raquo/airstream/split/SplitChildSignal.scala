@@ -2,10 +2,10 @@ package com.raquo.airstream.split
 
 import com.raquo.airstream.common.SingleParentSignal
 import com.raquo.airstream.core.{Protected, Transaction}
+import com.raquo.airstream.platform.{undefined, UndefOr}
 import com.raquo.airstream.state.WritableStrictSignal
 import com.raquo.airstream.timing.SyncDelayStream
 
-import scala.scalajs.js
 import scala.util.{Success, Try}
 
 // #TODO[Integrity] Should this extend LazyStrictSignal?
@@ -47,7 +47,7 @@ extends KeyedStrictSignal[K, A]
 with WritableStrictSignal[A]
 with SingleParentSignal[M[A], A] {
 
-  private var maybeInitialTransaction: js.UndefOr[Transaction] = Transaction.currentTransaction()
+  private var maybeInitialTransaction: UndefOr[Transaction] = Transaction.currentTransaction()
 
   private var droppedDuplicateEvent: Boolean = false
 
@@ -116,7 +116,7 @@ with SingleParentSignal[M[A], A] {
       //  I think None might be possible when evaluating this signal's initial value when starting it
       if (!droppedDuplicateEvent && maybeInitialTransaction == Transaction.currentTransaction()) {
         // dom.console.log(s">>>>> ${this} DROPPED EVENT ${freshMemoizedInput}, TRX IS ${maybeInitialTransaction}")
-        maybeInitialTransaction = js.undefined
+        maybeInitialTransaction = undefined
         droppedDuplicateEvent = true
       } else {
         // hasEmittedEvents = true

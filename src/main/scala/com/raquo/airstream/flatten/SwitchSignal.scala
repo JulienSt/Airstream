@@ -2,8 +2,8 @@ package com.raquo.airstream.flatten
 
 import com.raquo.airstream.common.InternalTryObserver
 import com.raquo.airstream.core.{InternalObserver, Protected, Signal, Transaction, WritableSignal}
+import com.raquo.airstream.platform.{undefined, UndefOr}
 
-import scala.scalajs.js
 import scala.util.{Success, Try}
 
 /** This flattens a Signal[ Signal[A] ] into a Signal[A]
@@ -16,7 +16,7 @@ class SwitchSignal[A](
 
   override protected val topoRank: Int = 1
 
-  private[this] var maybeCurrentSignalTry: js.UndefOr[Try[Signal[A]]] = js.undefined
+  private[this] var maybeCurrentSignalTry: UndefOr[Try[Signal[A]]] = undefined
 
   private[this] var innerSignalLastSeenUpdateId: Int = 0
 

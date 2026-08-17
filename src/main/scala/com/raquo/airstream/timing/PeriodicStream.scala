@@ -1,8 +1,8 @@
 package com.raquo.airstream.timing
 
 import com.raquo.airstream.core.{Transaction, WritableStream}
+import com.raquo.airstream.platform.{undefined, Timers, UndefOr}
 
-import scala.scalajs.js
 import scala.util.{Failure, Success, Try}
 
 // #TODO[API] Since this has an initial value, should this be a signal perhaps?
@@ -21,7 +21,7 @@ class PeriodicStream[A](
 
   private var currentValue: A = initial
 
-  private var maybeTimeoutHandle: js.UndefOr[js.timers.SetTimeoutHandle] = js.undefined
+  private var maybeTimeoutHandle: UndefOr[Timers.TimerHandle] = undefined
 
   // @TODO[API] Not a fan of exposing the ability to write to a stream on the stream itself,
   //  we separate this out on EventBus and Var
@@ -38,8 +38,8 @@ class PeriodicStream[A](
   }
 
   private def clearTimeout(): Unit = {
-    maybeTimeoutHandle.foreach(js.timers.clearTimeout)
-    maybeTimeoutHandle = js.undefined
+    maybeTimeoutHandle.foreach(Timers.clearTimeout)
+    maybeTimeoutHandle = undefined
   }
 
   private def tick(): Unit = {
@@ -57,7 +57,7 @@ class PeriodicStream[A](
     Try(next(currentValue)) match {
       case Success(Some((nextValue, nextIntervalMs))) =>
         currentValue = nextValue
-        maybeTimeoutHandle = js.timers.setTimeout(nextIntervalMs.toDouble) {
+        maybeTimeoutHandle = Timers.setTimeout(nextIntervalMs.toDouble) {
           tick()
         }
       case Success(None) =>

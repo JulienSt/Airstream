@@ -2,8 +2,8 @@ package com.raquo.airstream.misc
 
 import com.raquo.airstream.common.SingleParentSignal
 import com.raquo.airstream.core.{EventStream, Protected, Transaction}
+import com.raquo.airstream.platform.{undefined, UndefOr}
 
-import scala.scalajs.js
 import scala.util.Try
 
 class SignalFromStream[A](
@@ -26,7 +26,7 @@ class SignalFromStream[A](
     maybeCurrentValueFromParent.getOrElse(tryNow())
   }
 
-  private def maybeCurrentValueFromParent: js.UndefOr[Try[A]] = {
+  private def maybeCurrentValueFromParent: UndefOr[Try[A]] = {
     // #Note See also SplitChildSignal and CustomSignalSource for similar logic
     // #Note This can be called from inside tryNow(), so make sure to avoid an infinite loop
     if (maybeLastSeenCurrentValue.isEmpty) {
@@ -38,7 +38,7 @@ class SignalFromStream[A](
       // on every restart. #TODO[API] Not sure if this is a good default, to be honest.
       pullInitialValue
     } else {
-      js.undefined
+      undefined
     }
   }
 
