@@ -19,10 +19,13 @@ package-lock.json
 yarn.lock
 !website/yarn.lock
 
-.downloads
+.buildkit
 
 __pycache__/
 
 # Agents
 .claude/settings.local.json
 .claude/worktrees/
+
+# Legacy formatter downloads from before buildkit
+.downloads/

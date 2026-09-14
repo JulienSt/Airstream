@@ -27,11 +27,25 @@ This is expected. Ideally I would assert that this warning exists instead of pri
 ## Platform source sets
 
 Platform differences live in the build, not in the code. Platform-dependent decisions belong in the
-corresponding `.js`, `.native`, or future JVM source file. Shared sources must read as if only one platform
+corresponding `.js` or `.jvm-native` source file (with `.jvm` / `.native` available for target-specific code). Shared sources must read as if only one platform
 existed.
 
 Run `python3 scripts/check_platform_boundaries.py` before submitting a cross-platform change. The check
 rejects runtime platform probes and direct Scala.js or Scala Native APIs in shared production sources.
+
+The fork currently includes upstream `71af1572b7730ab49acb8358ee2b5abe77dc2e45`.
+`python3 scripts/check_js_regression.py` compares both Scala.js versions and the
+optimized consumer against that unmodified upstream commit. After merging a new
+upstream revision, update this baseline in both checkers and review the new diff
+before changing its recorded budgets. Merge commits do not count as new port
+implementation commits.
+
+JVM and Native compile the unchanged public Tuplez sources selected by
+`Versions.Tuplez`, matching the Scala.js dependency. The hidden `tuplez-sources`
+configuration resolves the source artifact from Maven Central; its sources are
+unpacked under `sourceManaged`, never copied into the repository. This replaces
+the older vendored Tuplez shim and retains the upstream MIT-licensed source.
+
 
 
 ## N-Generators

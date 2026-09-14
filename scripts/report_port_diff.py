@@ -9,11 +9,14 @@ import subprocess
 from typing import NamedTuple, Sequence
 
 
-BASELINE_COMMIT = "3e8c811"
+BASELINE_COMMIT = "71af1572b7730ab49acb8358ee2b5abe77dc2e45"
 MECHANICAL_COMMITS = frozenset({"cfcc346"})
-MAX_SHARED_PRODUCTION_FILES = 48
-MAX_GENUINE_COMMITS = 20
-MAX_GENUINE_LINE_CHANGES = 7073
+# Reviewed against the upstream baseline below. New shared adaptations are
+# CustomStreamSource, ScanLeftSignal and JsResilientIterator; Owner now matches
+# upstream exactly. Merge commits are excluded from the historical metrics.
+MAX_SHARED_PRODUCTION_FILES = 50
+MAX_GENUINE_COMMITS = 21
+MAX_GENUINE_LINE_CHANGES = 7091
 
 
 class DiffGrowthError(RuntimeError):
@@ -96,7 +99,7 @@ def line_changes(repository: pathlib.Path, commit_ids: Sequence[str]) -> int:
 def report(repository: pathlib.Path, check_budget: bool) -> str:
     status = run_git(repository, "diff", "--name-status", "-M100%", BASELINE_COMMIT, "HEAD")
     records = parse_name_status(status)
-    commit_ids = tuple(run_git(repository, "rev-list", "--reverse", f"{BASELINE_COMMIT}..HEAD").splitlines())
+    commit_ids = tuple(run_git(repository, "rev-list", "--no-merges", "--reverse", f"{BASELINE_COMMIT}..HEAD").splitlines())
     categories = breakdown(records, commit_ids, MECHANICAL_COMMITS)
     shared = shared_production_paths(records)
     genuine_lines = line_changes(repository, categories.genuine_commits)
@@ -107,7 +110,7 @@ def report(repository: pathlib.Path, check_budget: bool) -> str:
         assert_within_budget("genuine line changes", genuine_lines, MAX_GENUINE_LINE_CHANGES)
 
     lines = [
-        f"Fork point: {BASELINE_COMMIT}",
+        f"Upstream baseline: {BASELINE_COMMIT}",
         f"Pure moves (R100): {len(categories.pure_moves)}",
         f"Mechanical replacement commits: {len(categories.mechanical_commits)}",
         f"Genuine intervention commits: {len(categories.genuine_commits)}",

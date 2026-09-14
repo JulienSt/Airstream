@@ -6,9 +6,7 @@ import com.raquo.airstream.eventbus.EventBus
 import com.raquo.airstream.fixtures.{Effect, TestableOwner}
 import com.raquo.airstream.ownership.{DynamicOwner, DynamicSubscription, ManualOwner, Subscription}
 import com.raquo.airstream.platform.JsArray
-import com.raquo.airstream.split.{DuplicateKeysConfig, KeyedStrictSignal}
-import com.raquo.airstream.split.KeyedDerivedVar.varWithKey
-import com.raquo.airstream.split.KeyedStrictSignal.withKey
+import com.raquo.airstream.split.{varWithKey, withKey, DuplicateKeysConfig}
 import com.raquo.airstream.state.Var
 import org.scalatest.{Assertion, BeforeAndAfter}
 

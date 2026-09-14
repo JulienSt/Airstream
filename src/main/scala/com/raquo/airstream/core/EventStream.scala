@@ -13,6 +13,7 @@ import com.raquo.airstream.javaflow.FlowPublisherStream
 import com.raquo.airstream.map.{MapOps, MapStream}
 import com.raquo.airstream.misc._
 import com.raquo.airstream.platform.{JsArray, JsCallback, PlatformCallbacks}
+import com.raquo.airstream.scan.{ScanLeftSignal, ScanLeftStreamOps}
 import com.raquo.airstream.split.SplittableOneStream
 import com.raquo.airstream.status.{AsyncStatusObservable, Status}
 import com.raquo.airstream.timing._
@@ -26,6 +27,7 @@ extends Observable[A]
 with BaseObservable[EventStream, A]
 with EventSource[A]
 with CombineStreamOps[A] // combineWith, combineWithFn, withCurrentValueOf, sample
+with ScanLeftStreamOps[A] // scanLeft, scanLeftRecover, reduceLeft, etc.
 with EventStreamInstancePlatformOps[A] // dynamicImport on platforms that provide a module loader
 {
 
@@ -106,7 +108,7 @@ with EventStreamInstancePlatformOps[A] // dynamicImport on platforms that provid
   /** Make a stream that emits this stream's values but waits for `after` stream to emit first in a given transaction.
     * You can use this for Signals too with `Signal.composeChanges` (see docs for more details)
     */
-  def delaySync(after: EventStream[_]): EventStream[A] = {
+  def delaySync(after: EventStream[?]): EventStream[A] = {
     new SyncDelayStream[A](parent = this, after = after)
   }
 
@@ -245,31 +247,18 @@ with EventStreamInstancePlatformOps[A] // dynamicImport on platforms that provid
     EventStream.merge(allStreams: _*)
   }
 
-  @deprecated("foldLeft was renamed to scanLeft", "15.0.0-M1")
-  def foldLeft[B](initial: B)(fn: (B, A) => B): Signal[B] = scanLeft(initial)(fn)
-
-  @deprecated("foldLeftRecover was renamed to scanLeftRecover", "15.0.0-M1")
-  def foldLeftRecover[B](initial: Try[B])(fn: (Try[B], Try[A]) => Try[B]): Signal[B] = scanLeftRecover(initial)(fn)
-
-  // @TODO[API] Should we introduce some kind of FoldError() wrapper?
-  /** A signal that emits the accumulated value every time that the parent stream emits.
-    *
-    * See also: [[startWith]]
-    *
-    * @param fn Note: guarded against exceptions
-    */
-  def scanLeft[B](initial: B)(fn: (B, A) => B): Signal[B] = {
-    scanLeftRecover(Success(initial)) { (currentValue, nextParentValue) =>
-      Try(fn(currentValue.get, nextParentValue.get))
-    }
-  }
-
-  /** A signal that emits the accumulated value every time that the parent stream emits.
-    *
-    * @param fn Note: Must not throw!
-    */
-  def scanLeftRecover[B](initial: Try[B])(fn: (Try[B], Try[A]) => Try[B]): Signal[B] = {
-    new ScanLeftSignal(parent = this, () => initial, fn)
+  override protected def scanLeftRecover[B](
+    initial: Try[B],
+    resumeOnError: Boolean,
+  )(
+    combine: (Try[B], Try[A]) => Try[B],
+  ): Signal[B] = {
+    new ScanLeftSignal(
+      parent = this,
+      makeInitialValue = () => initial,
+      fn = combine,
+      resumeOnError = resumeOnError,
+    )
   }
 
   /** Convert stream to signal, given an initial value
@@ -465,11 +454,17 @@ with EventStreamPlatformOps // Provides fromFuture, and the promise constructors
   }
 
   /** Emit () with a delay (`ms` milliseconds after stream is started) */
-  @inline def delay(ms: Int): EventStream[Unit] = delay(ms, ())
+  def delay(ms: Int): EventStream[Unit] =
+    EventStream.fromValue(()).delay(ms)
 
-  /** Emit `event` with a delay (`ms` milliseconds after stream is started) */
-  def delay[A](ms: Int, event: A, emitOnce: Boolean = false): EventStream[A] = {
-    EventStream.fromValue(event, emitOnce).delay(ms)
+  /** Emit `event` with a delay (`ms` milliseconds after stream is started)
+    * Note: `event` is evaluated by-name, every time that the delayed stream fires.
+    */
+  def delay[A](ms: Int, event: => A, emitOnce: Boolean = false): EventStream[A] = {
+    EventStream
+      .fromValue((), emitOnce)
+      .delay(ms)
+      .mapTo(event) // #TODO[Perf] we could reduce the number of streams this is built from, if needed
   }
 
   def periodic(
@@ -543,4 +538,30 @@ with EventStreamPlatformOps // Provides fromFuture, and the promise constructors
   implicit def toTupleStream8[T1, T2, T3, T4, T5, T6, T7, T8](stream: EventStream[(T1, T2, T3, T4, T5, T6, T7, T8)]): TupleStream8[T1, T2, T3, T4, T5, T6, T7, T8] = new TupleStream8(stream)
 
   implicit def toTupleStream9[T1, T2, T3, T4, T5, T6, T7, T8, T9](stream: EventStream[(T1, T2, T3, T4, T5, T6, T7, T8, T9)]): TupleStream9[T1, T2, T3, T4, T5, T6, T7, T8, T9] = new TupleStream9(stream)
+
+  implicit def toTupleStream10[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10](stream: EventStream[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10)]): TupleStream10[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10] = new TupleStream10(stream)
+
+  implicit def toTupleStream11[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11](stream: EventStream[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11)]): TupleStream11[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11] = new TupleStream11(stream)
+
+  implicit def toTupleStream12[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12](stream: EventStream[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12)]): TupleStream12[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12] = new TupleStream12(stream)
+
+  implicit def toTupleStream13[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13](stream: EventStream[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13)]): TupleStream13[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13] = new TupleStream13(stream)
+
+  implicit def toTupleStream14[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14](stream: EventStream[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14)]): TupleStream14[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14] = new TupleStream14(stream)
+
+  implicit def toTupleStream15[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15](stream: EventStream[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15)]): TupleStream15[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15] = new TupleStream15(stream)
+
+  implicit def toTupleStream16[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16](stream: EventStream[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16)]): TupleStream16[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16] = new TupleStream16(stream)
+
+  implicit def toTupleStream17[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17](stream: EventStream[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17)]): TupleStream17[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17] = new TupleStream17(stream)
+
+  implicit def toTupleStream18[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18](stream: EventStream[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18)]): TupleStream18[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18] = new TupleStream18(stream)
+
+  implicit def toTupleStream19[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19](stream: EventStream[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19)]): TupleStream19[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19] = new TupleStream19(stream)
+
+  implicit def toTupleStream20[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20](stream: EventStream[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20)]): TupleStream20[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20] = new TupleStream20(stream)
+
+  implicit def toTupleStream21[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21](stream: EventStream[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21)]): TupleStream21[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21] = new TupleStream21(stream)
+
+  implicit def toTupleStream22[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21, T22](stream: EventStream[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21, T22)]): TupleStream22[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21, T22] = new TupleStream22(stream)
 }

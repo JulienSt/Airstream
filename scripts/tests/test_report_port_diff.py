@@ -1,6 +1,9 @@
 import importlib.util
 import pathlib
 import unittest
+import subprocess
+import tempfile
+from unittest.mock import patch
 
 
 SCRIPT = pathlib.Path(__file__).parents[1] / "report_port_diff.py"
@@ -61,6 +64,40 @@ class GrowthBudgetTest(unittest.TestCase):
     def test_rejects_growth_and_names_the_metric(self):
         with self.assertRaisesRegex(CHECKER.DiffGrowthError, "shared production files"):
             CHECKER.assert_within_budget("shared production files", 13, 12)
+
+
+class UpstreamMergeTest(unittest.TestCase):
+
+    def test_reports_only_port_commits_after_merging_a_new_upstream_baseline(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = pathlib.Path(temporary)
+
+            def git(*args):
+                return subprocess.check_output(["git", *args], cwd=repository, text=True, stderr=subprocess.DEVNULL).strip()
+
+            git("init", "-b", "upstream")
+            git("config", "user.name", "Port checker test")
+            git("config", "user.email", "port-checker@example.invalid")
+            (repository / "base.txt").write_text("base\n")
+            git("add", ".")
+            git("commit", "-m", "baseline")
+            git("switch", "-c", "port")
+            (repository / "port.txt").write_text("portable implementation\n")
+            git("add", ".")
+            git("commit", "-m", "native support")
+            git("switch", "upstream")
+            (repository / "upstream.txt").write_text("upstream feature\n")
+            git("add", ".")
+            git("commit", "-m", "new upstream feature")
+            baseline = git("rev-parse", "HEAD")
+            git("switch", "port")
+            git("merge", "--no-ff", "upstream", "-m", "merge upstream")
+
+            with patch.object(CHECKER, "BASELINE_COMMIT", baseline):
+                result = CHECKER.report(repository, check_budget=False)
+
+            self.assertIn("Genuine intervention commits: 1\n", result)
+            self.assertIn("Genuine intervention line changes: 1\n", result)
 
 
 if __name__ == "__main__":

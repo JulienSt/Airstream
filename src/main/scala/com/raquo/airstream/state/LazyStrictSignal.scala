@@ -5,7 +5,7 @@ import com.raquo.airstream.core.{Protected, Signal, Transaction}
 import com.raquo.airstream.debug.{Debugger, DebuggerSignal}
 import com.raquo.airstream.distinct.DistinctSignal
 import com.raquo.airstream.map.MapSignal
-import com.raquo.airstream.misc.ScanLeftSignal
+import com.raquo.airstream.scan.ScanLeftSignal
 
 import scala.util.Try
 
@@ -26,7 +26,7 @@ with SingleParentSignal[I, O] {
 
   protected val displayNameSuffix: String
 
-  override protected[this] val parent: Signal[I]
+  override protected val parent: Signal[I]
 
   protected def parentDisplayName: String = parent.displayName
 
@@ -34,7 +34,7 @@ with SingleParentSignal[I, O] {
 
   override def tryNow(): Try[O] = {
     // dom.console.log(s"> ${this} > tryNow")
-    if (parent.isInstanceOf[LazyStrictSignal[_, _]]) {
+    if (parent.isInstanceOf[LazyStrictSignal[?, ?]]) {
       // LazyStrictSignal-s are lazy, so if we want to actively pull a fresh value
       // from a LazyStrictSignal that depends on another LazyStrictSignal, we need
       // to force-evaluate the current value of that parent signal.
@@ -88,13 +88,13 @@ object LazyStrictSignal {
 
       override protected val topoRank: Int = Protected.topoRank(parentSignal) + 1
 
-      override protected[this] val parent: Signal[I] = parentSignal
+      override protected val parent: Signal[I] = parentSignal
 
       override protected def parentDisplayName: String = _pdn
 
       override protected val displayNameSuffix: String = _dns
 
-      override protected[this] def displayClassName: String = s"LazyStrictSignal{}"
+      override protected def displayClassName: String = s"LazyStrictSignal{}"
 
       override protected def onTry(nextParentValue: Try[I], transaction: Transaction): Unit = {
         super.onTry(nextParentValue, transaction)
@@ -123,7 +123,7 @@ object LazyStrictSignal {
 
       override protected val displayNameSuffix: String = _dns
 
-      override protected[this] def displayClassName: String = s"MapSignal+LazyStrictSignal"
+      override protected def displayClassName: String = s"MapSignal+LazyStrictSignal"
     }
   }
 
@@ -144,28 +144,33 @@ object LazyStrictSignal {
 
       override protected val displayNameSuffix: String = _dns
 
-      override protected[this] def displayClassName: String = s"DistinctSignal+LazyStrictSignal"
+      override protected def displayClassName: String = s"DistinctSignal+LazyStrictSignal"
     }
   }
 
   def scanLeftRecoverSignal[A, B](
     parentSignal: Signal[A],
     makeInitial: Try[A] => Try[B],
-    fn: (Try[B], Try[A]) => Try[B],
+    combine: (Try[B], Try[A]) => Try[B],
+    resumeOnError: Boolean,
     parentDisplayName: => String,
     displayNameSuffix: String,
   ): StrictSignal[B] = {
     val _pdn = parentDisplayName
     val _dns = displayNameSuffix
 
-    new ScanLeftSignal(parentSignal, () => makeInitial(parentSignal.tryNow()), fn)
-      with LazyStrictSignal[A, B] {
+    new ScanLeftSignal(
+      parent = parentSignal,
+      makeInitialValue = () => makeInitial(parentSignal.tryNow()),
+      fn = combine,
+      resumeOnError = resumeOnError,
+    ) with LazyStrictSignal[A, B] {
 
       override protected def parentDisplayName: String = _pdn
 
       override protected val displayNameSuffix: String = _dns
 
-      override protected[this] def displayClassName: String = "ScanLeftSignal+LazyStrictSignal"
+      override protected def displayClassName: String = "ScanLeftSignal+LazyStrictSignal"
     }
   }
 
@@ -185,7 +190,7 @@ object LazyStrictSignal {
 
       override protected val displayNameSuffix: String = _dns
 
-      override protected[this] def displayClassName: String = "DebuggerSignal+LazyStrictSignal"
+      override protected def displayClassName: String = "DebuggerSignal+LazyStrictSignal"
     }
   }
 }
