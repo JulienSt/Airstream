@@ -14,9 +14,10 @@ MECHANICAL_COMMITS = frozenset({"cfcc346"})
 # Reviewed against the upstream baseline below. New shared adaptations are
 # CustomStreamSource, ScanLeftSignal and JsResilientIterator; Owner now matches
 # upstream exactly. Merge commits are excluded from the historical metrics.
+# Includes the build-only ProjectRef fix and its external consumer regression check.
 MAX_SHARED_PRODUCTION_FILES = 50
-MAX_GENUINE_COMMITS = 21
-MAX_GENUINE_LINE_CHANGES = 7091
+MAX_GENUINE_COMMITS = 22
+MAX_GENUINE_LINE_CHANGES = 7156
 
 
 class DiffGrowthError(RuntimeError):

@@ -20,6 +20,19 @@ ThisBuild / buildKitDownloads := Seq(
   ).withDoNotEditComment(_.`#`)
 )
 
+ThisBuild / buildKitDownloadsDir := (ThisBuild / baseDirectory).value / ".buildkit"
+
+// Buildkit queues an unscoped download command, which resolves against a consuming
+// build when Airstream is loaded through ProjectRef. Run it in this build instead.
+Global / onLoad := {
+  val previous = (Global / onLoad).value
+  val downloads = ProjectRef((LocalRootProject / baseDirectory).value.toURI, "root") / buildKitRunDownloads
+  previous.andThen { state =>
+    val scoped = state.copy(remainingCommands = state.remainingCommands.filterNot(_.commandLine == "buildKitRunDownloads"))
+    Project.extract(scoped).runTask(downloads, scoped)._1
+  }
+}
+
 lazy val nonJavaScriptTestExclusionReasons =
   settingKey[Map[String, String]]("Non-JavaScript test sources excluded with a reviewable reason")
 

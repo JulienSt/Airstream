@@ -40,6 +40,9 @@ upstream revision, update this baseline in both checkers and review the new diff
 before changing its recorded budgets. Merge commits do not count as new port
 implementation commits.
 
+Run `python3 scripts/check_external_build.py` to verify that another sbt build can
+load the Native project through `ProjectRef` without receiving formatter downloads.
+
 JVM and Native compile the unchanged public Tuplez sources selected by
 `Versions.Tuplez`, matching the Scala.js dependency. The hidden `tuplez-sources`
 configuration resolves the source artifact from Maven Central; its sources are
