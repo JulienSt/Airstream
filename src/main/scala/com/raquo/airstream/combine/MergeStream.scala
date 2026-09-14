@@ -1,10 +1,11 @@
 package com.raquo.airstream.combine
 
-import com.raquo.airstream.common.{InternalParentObserver, MultiParentStream, Observation}
+import com.raquo.airstream.common.{InternalParentObserver, MultiParentStream, ObservationExt}
 import com.raquo.airstream.core.{EventStream, Observable, Protected, SyncObservable, Transaction, WritableStream}
-import com.raquo.airstream.platform.{undefined, UndefOr}
-import com.raquo.airstream.platform.JsArray
-import com.raquo.airstream.util.JsPriorityQueue
+import com.raquo.airstream.platform.{undefined, JsArray, UndefOr}
+import com.raquo.airstream.util.{FeatureFlags, JsPriorityQueue}
+
+import scala.annotation.nowarn
 
 /** Stream that emit events from all of its parents.
   *
@@ -19,20 +20,22 @@ class MergeStream[A](
   parentStreams: JsArray[EventStream[A]],
 ) extends WritableStream[A] with SyncObservable[A] with MultiParentStream[A, A] {
 
-  override protected[this] val parents: JsArray[Observable[A]] = {
+  override protected val parents: JsArray[Observable[A]] = {
     // This cast is safe as long as we don't put signals into this array
     parentStreams.asInstanceOf[JsArray[Observable[A]]]
   }
 
+  private val numParents: Int = parents.length
+
   override protected val topoRank: Int = Protected.maxTopoRank(parents) + 1
 
-  private[this] var lastFiredInTrx: UndefOr[Transaction] = undefined
+  private var lastFiredInTrx: UndefOr[Transaction] = undefined
 
-  private[this] val pendingParentValues: JsPriorityQueue[Observation[A]] = {
-    new JsPriorityQueue(observation => Protected.topoRank(observation.observable))
-  }
+  /** Priority by topoRank first, then by order of parent in `parents` (by default as of v18). */
+  private val pendingParentValues: JsPriorityQueue[ObservationExt[A, Int]] =
+    new JsPriorityQueue(_.extra) // see makeInternalObserver below for `extra` value.
 
-  private[this] val parentObservers: JsArray[InternalParentObserver[A]] = JsArray()
+  private val parentObservers: JsArray[InternalParentObserver[A]] = JsArray()
 
   parents.forEach(parent => parentObservers.push(makeInternalObserver(parent)))
 
@@ -68,20 +71,34 @@ class MergeStream[A](
     }
   }
 
-  override protected[this] def onStart(): Unit = {
+  override protected def onStart(): Unit = {
     parentObservers.forEach(_.addToParent(shouldCallMaybeWillStart = false))
     super.onStart()
   }
 
-  override protected[this] def onStop(): Unit = {
+  override protected def onStop(): Unit = {
     parentObservers.forEach(_.removeFromParent())
     lastFiredInTrx = undefined
     super.onStop()
   }
 
   private def makeInternalObserver(parent: Observable[A]): InternalParentObserver[A] = {
+    /** Events with lower sourcePriority values will be emitted first
+      * if multiple events are fired at the sae time.
+      */
+    val sourcePriority: Int = if (FeatureFlags.V18_TRX_ONSTART_FIX_144: @nowarn("msg=deprecated")) {
+      // Order simultaneous events by topoRank, breaking ties by parent (argument) index rather than
+      // by arrival/start order. This matters now that simultaneously-started
+      // sources (e.g. several `fromValue`-s under one mount) can deliver their
+      // start-emissions in the same transaction - see CustomStreamSource, https://github.com/raquo/airstream/issues/144.
+      // `topoRank * numParents + parentIndex` keeps topoRank dominant since
+      // parentIndex is in [0, numParents) range.
+      Protected.topoRank(parent) * numParents + parents.indexOf(parent)
+    } else {
+      Protected.topoRank(parent)
+    }
     InternalParentObserver.fromTry(parent, (nextValue, transaction) => {
-      pendingParentValues.enqueue(new Observation(parent, nextValue))
+      pendingParentValues.enqueue(new ObservationExt(parent, nextValue, sourcePriority))
       // @TODO[API] Actually, why are we checking for .contains here? We need to better define behaviour
       // @TODO Make a test case that would exercise this .contains check or lack thereof
       // @TODO I think this check is moot because we can't have an observable emitting more than once in a transaction. Or can we? I feel like we can't/ It should probably be part of the transaction contract.

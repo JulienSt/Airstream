@@ -6,7 +6,7 @@ import com.raquo.airstream.platform.{undefined, Timers, UndefOr}
 import com.raquo.airstream.platform.JsArray
 
 class DelayStream[A](
-  override protected[this] val parent: EventStream[A],
+  override protected val parent: EventStream[A],
   delayMs: Int
 ) extends SingleParentStream[A, A] with InternalNextErrorObserver[A] {
 
@@ -36,7 +36,7 @@ class DelayStream[A](
     timerHandles.push(timerHandle.get)
   }
 
-  override protected[this] def onStop(): Unit = {
+  override protected def onStop(): Unit = {
     timerHandles.forEach(Timers.clearTimeout(_))
     timerHandles.length = 0 // Clear array
     super.onStop()

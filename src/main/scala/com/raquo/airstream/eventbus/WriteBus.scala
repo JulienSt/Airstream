@@ -2,8 +2,9 @@ package com.raquo.airstream.eventbus
 
 import com.raquo.airstream.core.{EventStream, InternalObserver, Observer, Transaction}
 import com.raquo.airstream.ownership.{Owner, Subscription}
-import com.raquo.airstream.util.hasDuplicateTupleKeys
+import com.raquo.airstream.util.{FeatureFlags, hasDuplicateTupleKeys}
 
+import scala.annotation.nowarn
 import scala.util.Try
 
 class WriteBus[A](
@@ -47,17 +48,16 @@ class WriteBus[A](
   }
 
   override def onNext(nextValue: A): Unit = {
-    if (stream.isStarted) { // important check
+    if ((FeatureFlags.V18_EVENTBUS_ISSTARTED_FIX_155: @nowarn("msg=deprecated")) || stream.isStarted) {
+      // #Note: See https://github.com/raquo/Airstream/issues/155 about isStarted check
       // @TODO[Integrity] We rely on the knowledge that EventBusStream discards the transaction it's given. Laaaame
       InternalObserver.onNext(stream, nextValue, transaction = null)
     }
-    // else {
-    //   println(">>>> WriteBus.onNext called, but stream is not started!")
-    // }
   }
 
   override def onError(nextError: Throwable): Unit = {
-    if (stream.isStarted) {
+    if ((FeatureFlags.V18_EVENTBUS_ISSTARTED_FIX_155: @nowarn("msg=deprecated")) || stream.isStarted) {
+      // #Note: See https://github.com/raquo/Airstream/issues/155 about isStarted check
       // @TODO[Integrity] We rely on the knowledge that EventBusStream discards the transaction it's given. Laaaame
       InternalObserver.onError(stream, nextError, transaction = null)
     }
@@ -98,7 +98,7 @@ object WriteBus {
   /** Emit events into several WriteBus-es at once (in the same transaction)
     * Example usage: emitTry(writeBus1 -> value1, writeBus2 -> value2)
     */
-  def emit(values: BusTuple[_]*): Unit = {
+  def emit(values: BusTuple[?]*): Unit = {
     // println(s"> init trx from WriteBus.emit($values)")
     if (hasDuplicateTupleKeys(values.map(_.tuple))) {
       throw new Exception("Unable to {EventBus,WriteBus}.emit: the provided list of event buses has duplicates. You can't make an observable emit more than one event per transaction.")
@@ -109,7 +109,7 @@ object WriteBus {
   /** Emit events into several WriteBus-es at once (in the same transaction)
     * Example usage: emitTry(writeBus1 -> Success(value1), writeBus2 -> Failure(error2))
     */
-  def emitTry(values: BusTryTuple[_]*): Unit = {
+  def emitTry(values: BusTryTuple[?]*): Unit = {
     // println(s"> init trx from WriteBus.emitTry($values)")
     if (hasDuplicateTupleKeys(values.map(_.tuple))) {
       throw new Exception("Unable to {EventBus,WriteBus}.emitTry: the provided list of event buses has duplicates. You can't make an observable emit more than one event per transaction.")

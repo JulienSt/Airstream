@@ -1,5 +1,7 @@
 package com.raquo.airstream
 
+import scala.util.{Failure, Try}
+
 package object util {
 
   type Id[A] = A
@@ -14,7 +16,16 @@ package object util {
 
   val always: Any => Boolean = _ => true
 
-  def hasDuplicateTupleKeys(tuples: Seq[(_, _)]): Boolean = {
+  def hasDuplicateTupleKeys(tuples: Seq[(?, ?)]): Boolean = {
     tuples.size != tuples.map(_._1).toSet.size
+  }
+
+  /** Like `Try(v).flatten`, but avoids allocating another `Success`. */
+  def tryOrFailure[A](v: => Try[A]): Try[A] = {
+    try {
+      v
+    } catch {
+      case err: Throwable => Failure(err)
+    }
   }
 }

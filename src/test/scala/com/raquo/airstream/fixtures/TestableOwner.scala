@@ -4,11 +4,7 @@ import com.raquo.airstream.ownership.{Owner, Subscription}
 
 class TestableOwner extends Owner {
 
-  def _testSubscriptions: List[Subscription] = {
-    val result = List.newBuilder[Subscription]
-    subscriptions.forEach(subscription => result += subscription)
-    result.result()
-  }
+  def _testSubscriptions: List[Subscription] = subscriptions.toList
 
   override def killSubscriptions(): Unit = {
     super.killSubscriptions()

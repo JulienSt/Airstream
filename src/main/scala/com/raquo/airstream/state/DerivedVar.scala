@@ -6,6 +6,7 @@ import com.raquo.airstream.ownership.Owner
 
 import scala.util.{Failure, Success, Try}
 
+// #TODO[Naming] Rename to `StrictDerivedVar`, as opposed to the now common LazyDerivedVar?
 /** DerivedVar has the same Var contract as SourceVar, but instead of maintaining its own state
   * it is essentially a lens on the underlying SourceVar.
   *
@@ -21,9 +22,9 @@ class DerivedVar[A, B](
   displayNameSuffix: String
 ) extends Var[B] {
 
-  override private[state] def underlyingVar: SourceVar[_] = parent.underlyingVar
+  override private[state] def underlyingVar: SourceVar[?] = parent.underlyingVar
 
-  private[this] val _varSignal = new DerivedVarSignal(parent, zoomIn, owner, displayName)
+  private val _varSignal = new DerivedVarSignal(parent, zoomIn, owner, displayName)
 
   // #Note this getCurrentValue implementation is different from SourceVar
   //  - SourceVar's getCurrentValue looks at an internal currentValue variable

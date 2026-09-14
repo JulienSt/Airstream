@@ -10,8 +10,8 @@ import subprocess
 import tempfile
 
 
-BASELINE_COMMIT = "3e8c811"
-SCALA_VERSIONS = ("2.13.18", "3.3.7")
+BASELINE_COMMIT = "71af1572b7730ab49acb8358ee2b5abe77dc2e45"
+SCALA_VERSIONS = ("2.13.18", "3.9.0")
 SIZE_TOLERANCE = 0.01
 SAFE_MIMA_PROBLEMS = set()
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -158,7 +158,7 @@ def verify(repository, baseline_commit):
 
 def main():
     parser = argparse.ArgumentParser(description="Compare the Scala.js port with the unmodified Airstream baseline")
-    parser.add_argument("--baseline", default=BASELINE_COMMIT, help="pre-port git commit")
+    parser.add_argument("--baseline", default=BASELINE_COMMIT, help="unmodified upstream git commit")
     arguments = parser.parse_args()
     repository = pathlib.Path(__file__).resolve().parents[1]
     verify(repository, arguments.baseline)

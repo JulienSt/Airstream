@@ -19,11 +19,11 @@ import scala.util.Try
   * See also [[ThrottleStream]]
   */
 class DebounceStream[A](
-  override protected[this] val parent: EventStream[A],
+  override protected val parent: EventStream[A],
   intervalMs: Int
 ) extends SingleParentStream[A, A] with InternalTryObserver[A] {
 
-  private[this] var maybeLastTimeoutHandle: UndefOr[Timers.TimerHandle] = undefined
+  private var maybeLastTimeoutHandle: UndefOr[Timers.TimerHandle] = undefined
 
   override protected val topoRank: Int = 1
 
@@ -38,7 +38,7 @@ class DebounceStream[A](
     }
   }
 
-  override protected[this] def onStop(): Unit = {
+  override protected def onStop(): Unit = {
     maybeLastTimeoutHandle.foreach(Timers.clearTimeout)
     maybeLastTimeoutHandle = undefined
     super.onStop()

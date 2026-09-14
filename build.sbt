@@ -1,5 +1,3 @@
-import VersionHelper.{fallbackVersion, versionFmt}
-import com.raquo.buildkit.SourceDownloader
 import sbtcrossproject.CrossPlugin.autoImport.{crossProject, CrossType, JVMPlatform}
 import scalajscrossproject.ScalaJSCrossPlugin.autoImport.JSPlatform
 import scalanativecrossproject.ScalaNativeCrossPlugin.autoImport.NativePlatform
@@ -14,12 +12,31 @@ import scalanativecrossproject.ScalaNativeCrossPlugin.autoImport.NativePlatform
 // main-module initializer, MiMa, the CI source mapping — moved into jsSettings rather than being deleted or made
 // conditional on a platform check in shared code.
 
-lazy val preload = taskKey[Unit]("runs Airstream-specific pre-load tasks")
+ThisBuild / buildKitDownloads := Seq(
+  _.fromGithubTag(
+    repo = "raquo/scalafmt-config",
+    filePath = ".scalafmt.shared.conf",
+    tag = "v0.1.0"
+  ).withDoNotEditComment(_.`#`)
+)
 
 lazy val nonJavaScriptTestExclusionReasons =
   settingKey[Map[String, String]]("Non-JavaScript test sources excluded with a reviewable reason")
 
+lazy val TuplezSources = config("tuplez-sources").hide
+
 lazy val nonJavaScriptSettings = Seq(
+  libraryDependencies += ("app.tulz" %% "tuplez-full" % Versions.Tuplez % TuplezSources.name).classifier("sources"),
+  Compile / sourceGenerators += Def.task {
+    val sources = update.value.matching(configurationFilter(TuplezSources.name)).find(_.getName.endsWith("-sources.jar"))
+      .getOrElse(sys.error("Missing public Tuplez source artifact"))
+    val destination = (Compile / sourceManaged).value / "tuplez"
+    val license = IO.read((ThisBuild / baseDirectory).value / ".jvm-native" / "src" / "main" / "resources" / "META-INF" / "LICENSE-tuplez.txt")
+    val extracted = IO.unzip(sources, destination).filter(_.getName.endsWith(".scala")).toSeq
+    extracted.foreach(source => IO.write(source, "/*\n" + license + "*/\n" + IO.read(source)))
+    extracted
+  }.taskValue,
+  Compile / unmanagedResourceDirectories += (ThisBuild / baseDirectory).value / ".jvm-native" / "src" / "main" / "resources",
   crossScalaVersions := Seq(Versions.Scala_3),
   Compile / unmanagedSourceDirectories ++= {
     val root = (ThisBuild / baseDirectory).value / ".jvm-native" / "src" / "main"
@@ -56,44 +73,9 @@ lazy val nonJavaScriptSettings = Seq(
   }
 )
 
-preload := {
-  val projectDir = (ThisBuild / baseDirectory).value
-  // TODO Move code generators here as well?
-
-  SourceDownloader.downloadVersionedFile(
-    name = "scalafmt-shared-conf",
-    version = "v0.1.0",
-    urlPattern = version => s"https://raw.githubusercontent.com/raquo/scalafmt-config/refs/tags/$version/.scalafmt.shared.conf",
-    versionFile = projectDir / ".downloads" / ".scalafmt.shared.conf.version",
-    outputFile = projectDir / ".downloads" / ".scalafmt.shared.conf",
-    processOutput = "#\n# DO NOT EDIT. See SourceDownloader in build.sbt\n" + _
-  )
-}
-
-Global / onLoad := {
-  val previous = (Global / onLoad).value
-  previous.andThen { state =>
-    val extracted = Project.extract(state)
-    extracted.getOpt(preload) match {
-      case Some(_) => extracted.runTask(preload, state)._1
-      case None => state
-    }
-  }
-}
-
-// Replace default sbt-dynver version with a simpler one for easier local development
-// ThisBuild / version ~= (_.replaceFirst("(\\+[a-z0-9-+]*-SNAPSHOT)", "-NEXT"))
-
-// Makes sure to increment the version for local development
-ThisBuild / version := dynverGitDescribeOutput.value
-  .mkVersion(out => versionFmt(out, dynverSonatypeSnapshots.value), fallbackVersion(dynverCurrentDate.value))
-
-ThisBuild / dynver := {
-  val d = new java.util.Date
-  sbtdynver.DynVer
-    .getGitDescribeOutput(d)
-    .mkVersion(out => versionFmt(out, dynverSonatypeSnapshots.value), fallbackVersion(d))
-}
+// Auto-increment version for local development, using the same policy as upstream.
+ThisBuild / version := buildKitDynVer.version.value
+ThisBuild / dynver := buildKitDynVer.dynver.value
 
 ThisBuild / scalaVersion := Versions.Scala_3
 
@@ -114,6 +96,13 @@ def platformNeutralGenerators(sourceDir: File): Seq[File] = Seq.concat(
   GenerateTupleSignals(
     classNamePattern = n => s"TupleSignal$n",
     fileName = "TupleSignals.scala",
+    sourceDir = sourceDir,
+    from = generateTupleCombinatorsFrom,
+    to = generateTupleCombinatorsTo
+  ).run,
+  GenerateOptionTupleObservables(
+    classNamePattern = n => s"OptionTupleObservable$n",
+    fileName = "OptionTupleObservables.scala",
     sourceDir = sourceDir,
     from = generateTupleCombinatorsFrom,
     to = generateTupleCombinatorsTo
@@ -157,6 +146,7 @@ lazy val root = project
   .aggregate(airstream.js, airstream.jvm, airstream.native)
   .settings(
     name := "airstream-root",
+    crossScalaVersions := Seq(Versions.Scala_2_13, Versions.Scala_3),
     publish / skip := true,
     Compile / sources := Seq.empty,
     Test / sources := Seq.empty,
@@ -173,6 +163,7 @@ lazy val root = project
 lazy val airstream = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .crossType(CrossType.Pure)
   .in(file("."))
+  .configs(TuplezSources)
   .settings(
     name := "airstream",
     crossScalaVersions := Seq(Versions.Scala_2_13, Versions.Scala_3),
@@ -191,6 +182,38 @@ lazy val airstream = crossProject(JSPlatform, JVMPlatform, NativePlatform)
         "-Ywarn-value-discard",
         "-Wvalue-discard"
       ))
+    },
+    // Silence Scala 3 migration warnings for constructs that we intentionally keep
+    // because the sources cross-compile to Scala 2.13, which does not support the
+    // suggested Scala 3 replacements:
+    //  - `x: _*` vararg splices (2.13 has no `x*` splice syntax)
+    //  - `with` as a type operator (2.13 has no `&` intersection types)
+    //  - passing implicit arguments positionally (2.13 has no `using`)
+    //  - trailing ` _` eta-expansion (kept to avoid a Scala.js eta-expansion warning
+    //    about js.FunctionN not being @FunctionalInterface)
+    scalacOptions ++= {
+      if (scalaVersion.value.startsWith("3"))
+        Seq(
+          "-Wconf:msg=vararg splices:s",
+          "-Wconf:msg=with as a type operator:s",
+          "-Wconf:msg=Implicit parameters should be provided with a:s",
+          "-Wconf:msg=for eta-expansion is unnecessary:s"
+        )
+      else
+        Nil
+    },
+
+    // Silence Scala 3 migration/lint warnings that are only noise in the test sources
+    // (and that we don't migrate there, to avoid churn and keep 2.13 cross-compilation):
+    //  - ScalaTest matchers used infix, e.g. `x shouldBe y` (would require backticking
+    //    every assertion; the matchers are not declared `infix`)
+    (Test / scalacOptions) ++= {
+      if (scalaVersion.value.startsWith("3"))
+        Seq(
+          "-Wconf:msg=is not declared infix:s",
+        )
+      else
+        Nil
     },
     (Test / scalacOptions) ~= { options: Seq[String] =>
       options.filterNot { o =>
@@ -251,21 +274,19 @@ lazy val airstream = crossProject(JSPlatform, JVMPlatform, NativePlatform)
     mimaPreviousArtifacts := Set("com.raquo" %%% "airstream" % "17.2.0"),
     jsEnv := new org.scalajs.jsenv.jsdomnodejs.JSDOMNodeJSEnv(),
     scalaJSUseMainModuleInitializer := true,
-    scalacOptions ++= sys.env.get("CI").map { _ =>
-      val localSourcesPath = (LocalRootProject / baseDirectory).value.toURI
-      val remoteSourcesPath = s"https://raw.githubusercontent.com/raquo/Airstream/${git.gitHeadCommit.value.get}/"
-      val sourcesOptionName = if (scalaVersion.value.startsWith("2.")) "-P:scalajs:mapSourceURI" else "-scalajs-mapSourceURI"
-
-      s"${sourcesOptionName}:$localSourcesPath->$remoteSourcesPath"
-    }
+    scalacOptions += pointScalaJsSourceMapsToGithub("raquo/Airstream").value
   )
   .jvmSettings(nonJavaScriptSettings)
   .nativeSettings(nonJavaScriptSettings)
+  .nativeSettings(
+    scalaVersion := Versions.Scala_3_Native,
+    crossScalaVersions := Seq(Versions.Scala_3_Native)
+  )
 // No MiMa here: Native and JVM have no previously published binary contract.
 
 // https://github.com/JetBrains/sbt-ide-settings
 SettingKey[Seq[File]]("ide-excluded-directories").withRank(KeyRanks.Invisible) := Seq(
-  ".downloads", ".idea", ".metals", ".bloop", ".bsp",
+  ".buildkit", ".idea", ".metals", ".bloop", ".bsp",
   "target", "project/target", "project/project/target", "project/project/project/target",
   "node_modules"
 ).map(file)

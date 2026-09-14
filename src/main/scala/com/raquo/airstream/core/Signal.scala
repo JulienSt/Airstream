@@ -9,9 +9,10 @@ import com.raquo.airstream.debug.{Debugger, DebuggerSignal, DebugOps, DebugSigna
 import com.raquo.airstream.distinct.{DistinctOps, DistinctSignal}
 import com.raquo.airstream.extensions._
 import com.raquo.airstream.map.{MapOps, MapSignal}
-import com.raquo.airstream.misc.{ScanLeftSignal, StreamFromSignal}
+import com.raquo.airstream.misc.StreamFromSignal
 import com.raquo.airstream.ownership.Owner
 import com.raquo.airstream.platform.JsArray
+import com.raquo.airstream.scan.{ScanLeftSignal, ScanLeftSignalOps}
 import com.raquo.airstream.state.{ObservedSignal, OwnedSignal, Val}
 
 import scala.concurrent.{ExecutionContext, Future}
@@ -23,12 +24,12 @@ extends Observable[A]
 with BaseObservable[Signal, A]
 with SignalSource[A]
 with CombineSignalOps[A] // combineWith, combineWithFn, withCurrentValueOf, sample
-with ScanLeftSignalOps[Signal, A] // scanLeft, scanLeftRecover
+with ScanLeftSignalOps[Signal, A] // scanLeft, scanLeftRecover, reduceLeft, etc.
 with DebugSignalOps[Signal, A] // debug* (debugLogEvents, debugSpyAll, etc.)
 with SignalInstancePlatformOps[A] // dynamicImport on platforms that provide a module loader
 {
 
-  protected[this] var _lastUpdateId: Int = 0
+  protected var _lastUpdateId: Int = 0
 
   protected[airstream] def lastUpdateId: Int = _lastUpdateId
 
@@ -95,6 +96,20 @@ with SignalInstancePlatformOps[A] // dynamicImport on platforms that provide a m
     updatesOperator(updates).toSignalWithTry(initialOperator(tryNow()), cacheInitialValue)
   }
 
+  /** A stream of all values in this signal, including the initial value.
+    *
+    * This works just like [[updates]], EXCEPT that it also emits the signal's
+    * current value when the stream is first started. Once this stream has
+    * emitted its first event, it behaves exactly like [[updates]]:
+    *
+    * When re-starting this stream, it emits the signal's new current value
+    * iff the signal's value has been updated.
+    *
+    * The initial value is emitted in a new transaction, similarly to how
+    * [[EventStream.fromValue]] emits its value on start.
+    */
+  def toStream: EventStream[A] = new StreamFromSignal[A](parent = this, updatesOnly = false)
+
   // #TODO[API] Why is .updates a def, and not a lazy val?
   //  See `signal.updates shouldNotBe signal.updates` in SignalSpec
   /** A stream of all values in this signal, excluding the initial value.
@@ -129,27 +144,17 @@ with SignalInstancePlatformOps[A] // dynamicImport on platforms that provide a m
   @deprecated("signal.changes renamed to signal.updates", since = "18.0.0-M3")
   def changes[AA >: A](compose: EventStream[A] => EventStream[AA]): Signal[AA] = updates(compose)
 
-  @deprecated("foldLeft was renamed to scanLeft", "15.0.0-M1")
-  def foldLeft[B](makeInitial: A => B)(fn: (B, A) => B): Signal[B] = scanLeft(makeInitial)(fn)
-
-  @deprecated("foldLeftRecover was renamed to scanLeftRecover", "15.0.0-M1")
-  def foldLeftRecover[B](makeInitial: Try[A] => Try[B])(fn: (Try[B], Try[A]) => Try[B]): Signal[B] = scanLeftRecover(makeInitial)(fn)
-
-  /** A signal that emits the accumulated value every time that the parent signal emits.
-    *
-    * @param makeInitial currentParentValue => initialValue   Note: must not throw
-    * @param fn (currentValue, nextParentValue) => nextValue
-    * @return
-    */
-  override def scanLeftRecover[B](
-    makeInitial: Try[A] => Try[B]
+  override protected def scanLeftGeneratedRecover[B](
+    makeInitial: Try[A] => Try[B],
+    resumeOnError: Boolean,
   )(
-    fn: (Try[B], Try[A]) => Try[B]
+    combine: (Try[B], Try[A]) => Try[B],
   ): Signal[B] = {
     new ScanLeftSignal(
       parent = this,
       makeInitialValue = () => makeInitial(tryNow()),
-      fn
+      fn = combine,
+      resumeOnError = resumeOnError,
     )
   }
 
@@ -173,7 +178,7 @@ with SignalInstancePlatformOps[A] // dynamicImport on platforms that provide a m
     * You can use `myStream.toWeakSignal.observe.tryNow()` to read the last emitted
     * value from event streams just as well.
     */
-  def observe(implicit owner: Owner): OwnedSignal[A] = new ObservedSignal(this, Observer.empty, owner)
+  def observe(implicit owner: Owner): OwnedSignal[A] = new ObservedSignal(this, Observer.emptyIgnoreErrors, owner)
 
   override def toObservable: Signal[A] = this
 
@@ -185,7 +190,7 @@ with SignalInstancePlatformOps[A] // dynamicImport on platforms that provide a m
     * initialValue because Signal needs to know when its current value has
     * changed.
     */
-  override protected[this] def onStart(): Unit = {
+  override protected def onStart(): Unit = {
     // println(s"$this onStart")
     tryNow() // trigger setCurrentValue if we didn't initialize this before
     super.onStart()
@@ -297,6 +302,32 @@ with SignalPlatformOps // Provides fromFuture, and the promise constructors wher
   implicit def toTupleSignal8[T1, T2, T3, T4, T5, T6, T7, T8](stream: Signal[(T1, T2, T3, T4, T5, T6, T7, T8)]): TupleSignal8[T1, T2, T3, T4, T5, T6, T7, T8] = new TupleSignal8(stream)
 
   implicit def toTupleSignal9[T1, T2, T3, T4, T5, T6, T7, T8, T9](stream: Signal[(T1, T2, T3, T4, T5, T6, T7, T8, T9)]): TupleSignal9[T1, T2, T3, T4, T5, T6, T7, T8, T9] = new TupleSignal9(stream)
+
+  implicit def toTupleSignal10[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10](stream: Signal[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10)]): TupleSignal10[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10] = new TupleSignal10(stream)
+
+  implicit def toTupleSignal11[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11](stream: Signal[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11)]): TupleSignal11[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11] = new TupleSignal11(stream)
+
+  implicit def toTupleSignal12[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12](stream: Signal[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12)]): TupleSignal12[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12] = new TupleSignal12(stream)
+
+  implicit def toTupleSignal13[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13](stream: Signal[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13)]): TupleSignal13[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13] = new TupleSignal13(stream)
+
+  implicit def toTupleSignal14[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14](stream: Signal[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14)]): TupleSignal14[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14] = new TupleSignal14(stream)
+
+  implicit def toTupleSignal15[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15](stream: Signal[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15)]): TupleSignal15[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15] = new TupleSignal15(stream)
+
+  implicit def toTupleSignal16[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16](stream: Signal[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16)]): TupleSignal16[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16] = new TupleSignal16(stream)
+
+  implicit def toTupleSignal17[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17](stream: Signal[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17)]): TupleSignal17[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17] = new TupleSignal17(stream)
+
+  implicit def toTupleSignal18[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18](stream: Signal[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18)]): TupleSignal18[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18] = new TupleSignal18(stream)
+
+  implicit def toTupleSignal19[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19](stream: Signal[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19)]): TupleSignal19[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19] = new TupleSignal19(stream)
+
+  implicit def toTupleSignal20[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20](stream: Signal[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20)]): TupleSignal20[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20] = new TupleSignal20(stream)
+
+  implicit def toTupleSignal21[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21](stream: Signal[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21)]): TupleSignal21[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21] = new TupleSignal21(stream)
+
+  implicit def toTupleSignal22[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21, T22](stream: Signal[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21, T22)]): TupleSignal22[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21, T22] = new TupleSignal22(stream)
 
   private var lastUpdateId: Int = 0
 

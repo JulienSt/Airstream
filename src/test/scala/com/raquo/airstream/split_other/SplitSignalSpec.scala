@@ -7,7 +7,7 @@ import com.raquo.airstream.fixtures.{Effect, TestableOwner}
 import com.raquo.airstream.ownership.{DynamicOwner, DynamicSubscription, ManualOwner, Subscription}
 import com.raquo.airstream.platform.JsArray
 import com.raquo.airstream.split.{DuplicateKeysConfig, Splittable}
-import com.raquo.airstream.split.KeyedStrictSignal.withKey
+import com.raquo.airstream.split.withKey
 import com.raquo.airstream.state.Var
 import com.raquo.airstream.util.IdWrap
 import org.scalatest.{Assertion, BeforeAndAfter}
@@ -1658,7 +1658,7 @@ class SplitSignalSpec extends UnitSpec with BeforeAndAfter {
     val outerOwner = new TestableOwner
     val innerOwner = new TestableOwner
 
-    val effects = mutable.Buffer[Effect[_]]()
+    val effects = mutable.Buffer[Effect[?]]()
 
     var updateSource: Try[Int] => Unit = _ => throw new Exception("source signal has not been started yet")
 
