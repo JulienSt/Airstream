@@ -18,6 +18,11 @@ package object platform {
       */
     type JsMap[K, V] = com.raquo.ew.JsMap[K, V]
 
+    /** The identity-keyed set duplicate detection uses; JavaScript's own `Set` compares objects by reference. */
+    type JsSet[A] = com.raquo.ew.JsSet[A]
+
+    val JsSet: com.raquo.ew.JsSet.type = com.raquo.ew.JsSet
+
     /** The immutable JavaScript vector retained by the splitting API. */
     type JsVector[A] = com.raquo.ew.JsVector[A]
 
