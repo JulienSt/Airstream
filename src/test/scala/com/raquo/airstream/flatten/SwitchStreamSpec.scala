@@ -3,7 +3,7 @@ package com.raquo.airstream.flatten
 import com.raquo.airstream.UnitSpec
 import com.raquo.airstream.core.{EventStream, Observer}
 import com.raquo.airstream.eventbus.EventBus
-import com.raquo.airstream.fixtures.{Calculation, Effect, TestableOwner}
+import com.raquo.airstream.fixtures.{Calculation, Effect, TestSource, TestableOwner}
 import com.raquo.airstream.flatten.FlattenStrategy.SwitchStreamStrategy
 import com.raquo.airstream.state.Var
 
@@ -730,6 +730,478 @@ class SwitchStreamSpec extends UnitSpec {
       effects.toList,
       List(
         Effect("result", 400)
+      )
+    )
+    effects.clear()
+  }
+
+  it("EventStream: switching away drops the previous inner stream (stops it unless it has another observer)") {
+
+    implicit val owner: TestableOwner = new TestableOwner
+
+    val effects = mutable.Buffer[Effect[?]]()
+
+    var updateA: Int => Unit = { _ => throw new Exception("innerA has not been started yet") }
+    var updateB: Int => Unit = { _ => throw new Exception("innerB has not been started yet") }
+
+    // Two independent inner streams (no shared ancestor) so that we can observe
+    // start/stop of each one directly via the instrumented custom source.
+    val innerA = TestSource.stream[Int](effects, "A", onStart = updateA = _)
+    val innerB = TestSource.stream[Int](effects, "B", onStart = updateB = _)
+
+    val metaBus = new EventBus[EventStream[Int]]
+
+    metaBus.events.flattenSwitch.foreach(v => effects += Effect("result", v))(owner)
+
+    assertEquals(effects.toList, Nil)
+
+    // -- switch to innerA
+
+    metaBus.emit(innerA)
+
+    assertEquals(effects.toList, List(Effect("A-start", "ix-1")))
+    effects.clear()
+
+    updateA(1)
+
+    assertEquals(effects.toList, List(Effect("result", 1)))
+    effects.clear()
+
+    // -- give innerA an independent observer, then switch away to innerB.
+    //    innerA must NOT be stopped (make-before-break temporarily attaches an
+    //    empty observer, but the independent observer keeps it running anyway),
+    //    while innerB is started.
+
+    val extSubA = innerA.addObserver(Observer.empty)
+
+    assertEquals(effects.toList, Nil) // innerA already running, no extra start
+
+    metaBus.emit(innerB)
+
+    assertEquals(effects.toList, List(Effect("B-start", "ix-1")))
+    effects.clear()
+
+    // -- innerA's events no longer reach the flattened stream (switch forgot it) ...
+
+    updateA(2)
+
+    assertEquals(effects.toList, Nil)
+
+    // -- ... but innerB's events do
+
+    updateB(3)
+
+    assertEquals(effects.toList, List(Effect("result", 3)))
+    effects.clear()
+
+    // -- killing innerA's independent observer finally stops it (it was the last observer)
+
+    extSubA.kill()
+
+    assertEquals(effects.toList, List(Effect("A-stop", "ix-1")))
+    effects.clear()
+
+    // -- switching back to innerA re-subscribes from scratch (the switch had forgotten it),
+    //    so innerA starts again (ix-2), and innerB is now dropped and stopped.
+
+    metaBus.emit(innerA)
+
+    // #Note make-before-break: the new inner (innerA) starts before the previous one (innerB) stops
+    assertEquals(
+      effects.toList,
+      List(
+        Effect("A-start", "ix-2"),
+        Effect("B-stop", "ix-1")
+      )
+    )
+    effects.clear()
+
+    updateA(4)
+
+    assertEquals(effects.toList, List(Effect("result", 4)))
+    effects.clear()
+  }
+
+  it("EventStream: switching A -> B -> A restarts A from scratch (fromSeq re-emits), unlike flattenMerge") {
+
+    implicit val owner: TestableOwner = new TestableOwner
+
+    val calculations = mutable.Buffer[Calculation[Int]]()
+
+    val metaBus = new EventBus[EventStream[Int]]
+
+    // Same instances re-used on the way back. `switch` only compares the incoming
+    // stream to the *current* one, not to the whole history, so coming back to
+    // innerA is a genuine re-subscription that restarts the fromSeq stream.
+    // Contrast with flattenMerge, which keeps innerA subscribed the whole time
+    // and would not re-emit it on the way back.
+    val innerA = EventStream.fromSeq(List(1, 2))
+    val innerB = EventStream.fromSeq(List(10, 20))
+
+    metaBus.events.flattenSwitch
+      .map(Calculation.log("flat", calculations))
+      .addObserver(Observer.empty)
+
+    assert(calculations.isEmpty)
+
+    // --
+
+    metaBus.emit(innerA)
+
+    assert(calculations.toList == List(
+      Calculation("flat", 1),
+      Calculation("flat", 2)
+    ))
+    calculations.clear()
+
+    // --
+
+    metaBus.emit(innerB)
+
+    assert(calculations.toList == List(
+      Calculation("flat", 10),
+      Calculation("flat", 20)
+    ))
+    calculations.clear()
+
+    // -- back to innerA: switch forgot it, so it restarts and fromSeq re-emits
+
+    metaBus.emit(innerA)
+
+    assert(calculations.toList == List(
+      Calculation("flat", 1),
+      Calculation("flat", 2)
+    ))
+    calculations.clear()
+  }
+
+  it("Signal: switching away drops the previous inner stream (stops it unless it has another observer)") {
+
+    implicit val owner: TestableOwner = new TestableOwner
+
+    val effects = mutable.Buffer[Effect[?]]()
+
+    var updateA: Int => Unit = { _ => throw new Exception("innerA has not been started yet") }
+    var updateB: Int => Unit = { _ => throw new Exception("innerB has not been started yet") }
+
+    val innerA = TestSource.stream[Int](
+      effects = effects, label = "A", onStart = { updateA = _ }
+    )
+    val innerB = TestSource.stream[Int](
+      effects = effects, label = "B", onStart = { updateB = _ }
+    )
+
+    // Signal parent, driven through the flatMapSwitch(project) entry point.
+    val switchVar = Var(0)
+
+    switchVar.signal
+      .flatMapSwitch(n => if (n < 10) innerA else innerB)
+      .foreach(v => effects += Effect("result", v))(owner)
+
+    // On start, the signal's current value (0) selects innerA.
+    assertEquals(effects.toList, List(Effect("A-start", "ix-1")))
+    effects.clear()
+
+    updateA(1)
+
+    assertEquals(effects.toList, List(Effect("result", 1)))
+    effects.clear()
+
+    // -- switch away to innerB: innerA has no other observer, so it is stopped.
+
+    switchVar.set(10)
+
+    // #Note make-before-break: the new inner (innerB) starts before the previous one (innerA) stops
+    assertEquals(
+      effects.toList,
+      List(
+        Effect("B-start", "ix-1"),
+        Effect("A-stop", "ix-1")
+      )
+    )
+    effects.clear()
+
+    // -- innerA is forgotten; its events reach nothing
+
+    updateA(2)
+
+    assertEquals(effects.toList, Nil)
+
+    updateB(3)
+
+    assertEquals(effects.toList, List(Effect("result", 3)))
+    effects.clear()
+
+    // -- give innerB an independent observer, then switch away to innerA.
+    //    innerB must NOT be stopped, and innerA restarts from scratch.
+
+    val extSubB = innerB.addObserver(Observer.empty)
+
+    assertEquals(effects.toList, Nil)
+
+    switchVar.set(5)
+
+    assertEquals(effects.toList, List(Effect("A-start", "ix-2")))
+    effects.clear()
+
+    // -- innerB keeps running thanks to its independent observer, until we kill it
+
+    updateB(4)
+
+    assertEquals(effects.toList, Nil)
+
+    extSubB.kill()
+
+    assertEquals(effects.toList, List(Effect("B-stop", "ix-1")))
+    effects.clear()
+  }
+
+  it("EventStream: retains and re-subscribes the current inner stream across restart (pausing)") {
+
+    implicit val owner: TestableOwner = new TestableOwner
+
+    val effects = mutable.Buffer[Effect[?]]()
+
+    var updateA: Int => Unit = { _ => throw new Exception("innerA has not been started yet") }
+
+    val innerA = TestSource.stream[Int](effects, "A", onStart = updateA = _)
+
+    val metaBus = new EventBus[EventStream[Int]]
+
+    val flatStream = metaBus.events.flattenSwitch
+
+    // -- start the switch and switch to innerA
+
+    val sub1 = flatStream.foreach(v => effects += Effect("result", v))
+
+    metaBus.emit(innerA)
+
+    assertEquals(effects.toList, List(Effect("A-start", "ix-1")))
+    effects.clear()
+
+    updateA(1)
+
+    assertEquals(effects.toList, List(Effect("result", 1)))
+    effects.clear()
+
+    // -- stop the switch: innerA has no other observer, so it stops too
+
+    sub1.kill()
+
+    assertEquals(effects.toList, List(Effect("A-stop", "ix-1")))
+    effects.clear()
+
+    // -- restart the switch WITHOUT the parent re-emitting: the switch retained innerA
+    //    across the stop, so it re-subscribes to it and innerA starts again (ix-2).
+    //    A stream has no current value, so nothing is re-synced on restart.
+
+    val sub2 = flatStream.foreach(v => effects += Effect("result", v))
+
+    assertEquals(effects.toList, List(Effect("A-start", "ix-2")))
+    effects.clear()
+
+    // -- the retained inner is mirrored again after restart
+
+    updateA(2) // updateA now holds the fireValue captured at the ix-2 start
+
+    assertEquals(effects.toList, List(Effect("result", 2)))
+    effects.clear()
+
+    sub2.kill()
+
+    assertEquals(effects.toList, List(Effect("A-stop", "ix-2")))
+    effects.clear()
+  }
+
+  it("EventStream: events emitted by the inner stream while the switch is stopped are lost") {
+
+    implicit val owner: TestableOwner = new TestableOwner
+
+    val effects = mutable.Buffer[Effect[?]]()
+
+    var updateA: Int => Unit = { _ => throw new Exception("innerA has not been started yet") }
+
+    val innerA = TestSource.stream[Int](effects, "A", onStart = updateA = _)
+
+    val metaBus = new EventBus[EventStream[Int]]
+
+    val flatStream = metaBus.events.flattenSwitch
+
+    val sub1 = flatStream.foreach(v => effects += Effect("result", v))
+
+    metaBus.emit(innerA)
+
+    assertEquals(effects.toList, List(Effect("A-start", "ix-1")))
+    effects.clear()
+
+    // -- keep innerA running independently so it stays alive while the switch is stopped
+
+    val extSubA = innerA.addObserver(Observer.empty)
+
+    assertEquals(effects.toList, Nil) // innerA already running, no extra start
+
+    updateA(1)
+
+    assertEquals(effects.toList, List(Effect("result", 1)))
+    effects.clear()
+
+    // -- stop the switch. innerA keeps running (extSubA), so it is NOT stopped.
+
+    sub1.kill()
+
+    assertEquals(effects.toList, Nil)
+
+    // -- innerA emits while the switch is stopped -> the event is lost
+
+    updateA(2)
+
+    assertEquals(effects.toList, Nil)
+
+    // -- restart the switch: it re-subscribes to the retained innerA, but does NOT
+    //    replay the event missed while stopped (a stream has no current value).
+
+    val sub2 = flatStream.foreach(v => effects += Effect("result", v))
+
+    assertEquals(effects.toList, Nil)
+
+    // -- subsequent innerA events are mirrored again
+
+    updateA(3)
+
+    assertEquals(effects.toList, List(Effect("result", 3)))
+    effects.clear()
+
+    sub2.kill()
+    extSubA.kill()
+
+    assertEquals(effects.toList, List(Effect("A-stop", "ix-1")))
+    effects.clear()
+  }
+
+  it("Signal: restart re-derives the inner stream from the parent signal's current value, so an emit-on-start inner re-emits (cf. #158)") {
+
+    implicit val owner: TestableOwner = new TestableOwner
+
+    val effects = mutable.Buffer[Effect[Int]]()
+
+    val parentVar = Var(1)
+
+    // `makeStream` produces a fresh emit-on-start stream (EventStream.fromValue) for
+    // each parent value. On both first start and restart, SwitchStream (signal parent)
+    // re-derives the inner from the parent signal's *current* value in onWillStart,
+    // willStarts it, and switches to it with isStarting = true — so the inner's
+    // initial fromValue event must be emitted each time. This is the SwitchStream
+    // analogue of the flattenMerge #158 bug (a lost initial fromValue event on start);
+    // a willStart omission on the restart path would drop the 30 below.
+    val flatStream = parentVar.signal.flatMapSwitch(n => EventStream.fromValue(n * 10))
+
+    val sub1 = flatStream.foreach(v => effects += Effect("result", v))
+
+    // first start: parent's current value is 1 -> inner fromValue(10) emits on start
+    assertEquals(effects.toList, List(Effect("result", 10)))
+    effects.clear()
+
+    // parent changes while started -> switch to a fresh fromValue(20)
+    parentVar.set(2)
+
+    assertEquals(effects.toList, List(Effect("result", 20)))
+    effects.clear()
+
+    // -- stop
+
+    sub1.kill()
+
+    assertEquals(effects.toList, Nil)
+
+    // -- parent changes while stopped
+
+    parentVar.set(3)
+
+    assertEquals(effects.toList, Nil)
+
+    // -- restart: re-derives the inner from the parent's current value (3),
+    //    and the fresh fromValue(30) re-emits its initial event on start.
+
+    val sub2 = flatStream.foreach(v => effects += Effect("result", v))
+
+    assertEquals(effects.toList, List(Effect("result", 30)))
+    effects.clear()
+
+    // -- and it keeps switching after restart
+
+    parentVar.set(4)
+
+    assertEquals(effects.toList, List(Effect("result", 40)))
+    effects.clear()
+  }
+
+  it("EventStream: switched events emit in a new transaction (loopy) — a combineWith diamond glitches as expected") {
+
+    implicit val owner: TestableOwner = new TestableOwner
+
+    val effects = mutable.Buffer[Effect[(Int, Int)]]()
+
+    val bus = new EventBus[Int]
+
+    val n = bus.events
+
+    // `switched` is loopy: it re-emits each value in a NEW transaction.
+    val switched = n.flatMapSwitch(v => EventStream.fromValue(v))
+
+    // Diamond: combine the (flowy) parent value with the (loopy) switched value.
+    // Because `switched` emits in a separate transaction from `n`, this diamond is
+    // NOT glitch-free: when `n` emits, combineWith first fires with the still-stale
+    // `switched` value, then fires again once `switched` catches up in its own trx.
+    // (Contrast with the flowy diamond in GlitchSpec, which fires exactly once.)
+    n.combineWith(switched).foreach(v => effects += Effect("combined", v))
+
+    // -- first event: `switched` has no value yet during n's transaction, so
+    //    combineWith only fires once `switched` emits (in its new transaction).
+
+    bus.emit(1)
+
+    assertEquals(effects.toList, List(Effect("combined", (1, 1))))
+    effects.clear()
+
+    // -- second event: combineWith fires (2, 1) with the stale switched value in n's
+    //    transaction, then (2, 2) once `switched` re-emits in its own new transaction.
+
+    bus.emit(2)
+
+    assertEquals(
+      effects.toList,
+      List(
+        Effect("combined", (2, 1)),
+        Effect("combined", (2, 2))
+      )
+    )
+    effects.clear()
+  }
+
+  it("EventStream: an inner fromSeq(1, 2, 3) emits three values, each in its own transaction, in order") {
+
+    implicit val owner: TestableOwner = new TestableOwner
+
+    val effects = mutable.Buffer[Effect[(Int, Int)]]()
+
+    val metaBus = new EventBus[EventStream[Int]]
+
+    val flat = metaBus.events.flattenSwitch
+
+    // `flat.map` is flowy (emits in the same transaction as `flat`), so this diamond
+    // is glitch-free *within* each transaction. Getting three clean pairs
+    // (1,100),(2,200),(3,300) — rather than a single fire or cross-glitches like
+    // (2,100) — shows each fromSeq value propagated fully in its own transaction.
+    flat.combineWith(flat.map(_ * 100)).foreach(v => effects += Effect("combined", v))
+
+    metaBus.emit(EventStream.fromSeq(List(1, 2, 3)))
+
+    assertEquals(
+      effects.toList,
+      List(
+        Effect("combined", (1, 100)),
+        Effect("combined", (2, 200)),
+        Effect("combined", (3, 300))
       )
     )
     effects.clear()
