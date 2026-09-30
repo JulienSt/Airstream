@@ -13,11 +13,11 @@ object Versions {
 
   val Tuplez = "0.4.0"
 
-  val Ew = "0.3.0"
+  val Ew = "0.3.1"
 
   // -- Test --
 
-  val ScalaTest = "3.2.19"
+  val ScalaTest = "3.2.20"
 
   val ScalaCheck = "1.18.1"
 }

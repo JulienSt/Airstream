@@ -3,7 +3,7 @@ package com.raquo.airstream.flatten
 import com.raquo.airstream.UnitSpec
 import com.raquo.airstream.core.{EventStream, Observer, Signal}
 import com.raquo.airstream.eventbus.EventBus
-import com.raquo.airstream.fixtures.{Calculation, Effect, TestableOwner}
+import com.raquo.airstream.fixtures.{Calculation, Effect, TestSource, TestableOwner}
 import com.raquo.airstream.state.{Val, Var}
 
 import scala.collection.mutable
@@ -503,6 +503,204 @@ class SwitchSignalSpec extends UnitSpec {
       effects.toList,
       List(
         Effect("result", 400)
+      )
+    )
+    effects.clear()
+  }
+
+  it("switching away drops the previous inner signal (stops it unless it has another observer)") {
+
+    implicit val owner: TestableOwner = new TestableOwner
+
+    val effects = mutable.Buffer[Effect[?]]()
+
+    var updateA: Try[Int] => Unit = { _ => throw new Exception("innerA has not been started yet") }
+    var updateB: Try[Int] => Unit = { _ => throw new Exception("innerB has not been started yet") }
+
+    // Two independent inner signals (no shared ancestor) so that we can observe
+    // start/stop of each one directly via the instrumented custom source.
+    val innerA = TestSource.signal[Int](
+      effects = effects, label = "A", initial = Success(0), onStart = { updateA = _ }
+    )
+    val innerB = TestSource.signal[Int](
+      effects = effects, label = "B", initial = Success(100), onStart = { updateB = _ }
+    )
+
+    val metaVar = Var[Signal[Int]](innerA)
+
+    metaVar.signal.flattenSwitch.foreach(v => effects += Effect("result", v))(owner)
+
+    // On start, the flattened signal mirrors innerA (its current value is 0).
+    // #Note the signal's current value is emitted before the inner is started.
+    assertEquals(
+      effects.toList,
+      List(
+        Effect("result", 0),
+        Effect("A-start", "ix-1")
+      )
+    )
+    effects.clear()
+
+    updateA(Success(1))
+
+    assertEquals(effects.toList, List(Effect("result", 1)))
+    effects.clear()
+
+    // -- give innerA an independent observer, then switch away to innerB.
+    //    innerA must NOT be stopped (make-before-break plus the independent
+    //    observer keep it running), while the flattened signal now mirrors innerB.
+
+    val extSubA = innerA.addObserver(Observer.empty)
+
+    assertEquals(effects.toList, Nil) // innerA already running, no extra start
+
+    metaVar.set(innerB)
+
+    assertEquals(
+      effects.toList,
+      List(
+        Effect("result", 100),
+        Effect("B-start", "ix-1")
+      )
+    )
+    effects.clear()
+
+    // -- innerA's updates no longer reach the flattened signal (switch forgot it),
+    //    but innerA keeps running (via extSubA), so it retains this new value (2)
+
+    updateA(Success(2))
+
+    assertEquals(effects.toList, Nil)
+
+    // -- ... but innerB's updates do
+
+    updateB(Success(3))
+
+    assertEquals(effects.toList, List(Effect("result", 3)))
+    effects.clear()
+
+    // -- killing innerA's independent observer finally stops it
+
+    extSubA.kill()
+
+    assertEquals(effects.toList, List(Effect("A-stop", "ix-1")))
+    effects.clear()
+
+    // -- switching back to innerA re-subscribes it from scratch (the switch had
+    //    forgotten it), so it starts again (ix-2) and re-syncs its retained value (2).
+    //    Thanks to make-before-break, innerB is stopped last, after innerA is running.
+
+    metaVar.set(innerA)
+
+    // #Note make-before-break: innerA is re-synced and started before innerB is stopped
+    assertEquals(
+      effects.toList,
+      List(
+        Effect("result", 2),
+        Effect("A-start", "ix-2"),
+        Effect("B-stop", "ix-1")
+      )
+    )
+    effects.clear()
+  }
+
+  it("re-syncs current value on restart iff the inner signal changed while stopped (no spurious event)") {
+
+    implicit val owner: TestableOwner = new TestableOwner
+
+    val calculations = mutable.Buffer[Calculation[Int]]()
+    val effects = mutable.Buffer[Effect[Int]]()
+
+    val innerVar = Var(0)
+    val metaVar = Var[Signal[Int]](innerVar.signal)
+
+    // `map(Calculation.log)` lets us distinguish a real re-sync (the SwitchSignal
+    // fired a new value, so the downstream map recomputes) from the ordinary
+    // "a signal hands its current value to a new observer" (no recompute).
+    val flatSignal = metaVar.signal.flattenSwitch.map(Calculation.log("flat", calculations))
+
+    val obs = Observer[Int](effects += Effect("obs", _))
+
+    val sub1 = flatSignal.addObserver(obs)
+
+    assertEquals(calculations.toList, List(Calculation("flat", 0)))
+    assertEquals(effects.toList, List(Effect("obs", 0)))
+    calculations.clear()
+    effects.clear()
+
+    innerVar.set(1)
+
+    assertEquals(calculations.toList, List(Calculation("flat", 1)))
+    assertEquals(effects.toList, List(Effect("obs", 1)))
+    calculations.clear()
+    effects.clear()
+
+    // -- stop, restart WITHOUT changing the inner signal: no re-sync (update id
+    //    unchanged), so no recompute. The new observer still gets the current value once.
+
+    sub1.kill()
+
+    val sub2 = flatSignal.addObserver(obs)
+
+    assertEquals(calculations.toList, Nil)
+    assertEquals(effects.toList, List(Effect("obs", 1)))
+    effects.clear()
+
+    // -- stop, change the inner signal while stopped (Var retains its value and bumps
+    //    its update id), restart: SwitchSignal re-syncs the new value exactly once.
+
+    sub2.kill()
+
+    innerVar.set(2)
+
+    val sub3 = flatSignal.addObserver(obs)
+
+    assertEquals(calculations.toList, List(Calculation("flat", 2)))
+    assertEquals(effects.toList, List(Effect("obs", 2)))
+    calculations.clear()
+    effects.clear()
+
+    // -- and it keeps mirroring after restart
+
+    innerVar.set(3)
+
+    assertEquals(calculations.toList, List(Calculation("flat", 3)))
+    assertEquals(effects.toList, List(Effect("obs", 3)))
+    calculations.clear()
+    effects.clear()
+
+    sub3.kill()
+  }
+
+  it("emits the switched-to signal's initial value before the updates that starting it triggers (trx timing)") {
+
+    implicit val owner: TestableOwner = new TestableOwner
+
+    val effects = mutable.Buffer[Effect[Int]]()
+
+    val metaVar = Var[Signal[Int]](Val(-1))
+
+    val flat = metaVar.signal.flattenSwitch
+
+    flat.foreach(v => effects += Effect("result", v))
+
+    // initial inner signal Val(-1)
+    assertEquals(effects.toList, List(Effect("result", -1)))
+    effects.clear()
+
+    // Switch (online, via switchToSignalOnline's `trx` block) to an inner signal whose
+    // *initial* value is 0, but whose start schedules updates 1, 2, 3 (the fromSeq
+    // events) in subsequent transactions. The initial value (0) must be emitted first,
+    // before those updates — not missed (a pre-Airstream-15 regression).
+    metaVar.set(EventStream.fromSeq(List(1, 2, 3)).startWith(0))
+
+    assertEquals(
+      effects.toList,
+      List(
+        Effect("result", 0),
+        Effect("result", 1),
+        Effect("result", 2),
+        Effect("result", 3)
       )
     )
     effects.clear()
