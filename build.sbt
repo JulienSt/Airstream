@@ -292,8 +292,8 @@ lazy val airstream = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .jvmSettings(nonJavaScriptSettings)
   .nativeSettings(nonJavaScriptSettings)
   .nativeSettings(
-    scalaVersion := Versions.Scala_3_Native,
-    crossScalaVersions := Seq(Versions.Scala_3_Native)
+    scalaVersion := Versions.Scala_3,
+    crossScalaVersions := Seq(Versions.Scala_3)
   )
 // No MiMa here: Native and JVM have no previously published binary contract.
 

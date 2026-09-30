@@ -6,8 +6,8 @@
 
 This branch adds JVM and Scala Native targets alongside Scala.js. Build and test with
 `sbt +test`; individual targets are `airstreamJS`, `airstreamJVM`, and `airstreamNative`.
-Scala.js supports Scala 2.13.18 and 3.9.0, JVM uses Scala 3.9.0, and Native uses Scala
-3.8.2 with Scala Native 0.5.11 (plus a local Clang toolchain). Browser APIs, including
+Scala.js supports Scala 2.13.18 and 3.9.0; JVM and Native use Scala 3.9.0, Native with
+Scala Native 0.5.12 (plus a local Clang toolchain). Browser APIs, including
 DOM, promises, dynamic imports, and animation frames, remain Scala.js-only.
 On JVM and Native, drive `com.raquo.airstream.platform.Timers.runDue(nowMillis)` from
 the thread owning the reactive graph; Future callbacks must also execute on that
