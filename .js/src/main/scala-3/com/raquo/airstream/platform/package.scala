@@ -9,6 +9,10 @@ package object platform {
 
     type JsMap = [K, V] =>> com.raquo.ew.JsMap[K, V]
 
+    type JsSet = [A] =>> com.raquo.ew.JsSet[A]
+
+    val JsSet: com.raquo.ew.JsSet.type = com.raquo.ew.JsSet
+
     type JsVector = [A] =>> com.raquo.ew.JsVector[A]
 
     type ScalaJsArray = [A] =>> scala.scalajs.js.Array[A]

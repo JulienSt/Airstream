@@ -1,6 +1,6 @@
 package com.raquo.airstream
 
-import com.raquo.ew.JsSet
+import com.raquo.airstream.platform.JsSet
 
 import scala.util.{Failure, Try}
 
