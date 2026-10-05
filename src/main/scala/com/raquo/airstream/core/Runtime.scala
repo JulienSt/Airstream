@@ -1,7 +1,10 @@
 package com.raquo.airstream.core
 
-import com.raquo.airstream.core.AirstreamError.{CrossRuntimeAccess, CrossRuntimeEdge, ForeignThreadEntry}
-import com.raquo.airstream.platform.{DevTools, DiagnosticLevel, DiagnosticSinks, JsArray, RuntimePermit, RuntimeTimers, ThreadSlot}
+import com.raquo.airstream.core.AirstreamError.{CrossRuntimeAccess, CrossRuntimeEdge, ForeignThreadEntry, ScheduledRuntimeEntry, SubmissionRejected, WaitInsideTurn}
+import com.raquo.airstream.platform.{AtomicCounter, DevTools, DiagnosticLevel, DiagnosticSinks, JsArray, RuntimePermit, RuntimeTimers, ThreadSlot}
+
+import scala.concurrent.{ExecutionContext, Future, Promise}
+import scala.util.control.NonFatal
 
 /** A runtime is an identity plus the state that Airstream used to keep in process-wide singletons: the transaction
   * stack, the shared-start batching, the update-id counter, the error routing and the configuration. Two runtimes never
@@ -19,14 +22,44 @@ import com.raquo.airstream.platform.{DevTools, DiagnosticLevel, DiagnosticSinks,
   * The default runtime has a floating permit: whichever thread enters it first holds it until that entry returns, and the
   * next thread may enter afterwards. A confined runtime is bound to the thread that created it. Scala.js has one thread,
   * so there the permit only tracks whether the runtime is entered.
+  *
+  * A scheduled runtime (`Runtime.scheduled`) has a mailbox instead: `submit` admits a command from any thread and its
+  * executor runs the turns, one at a time; `run` is rejected there unless it is reentrant, inside a
+  * turn. Both strategies share the turn: a command runs under the permit with this runtime as the current context, and
+  * its receipt settles after the command's synchronous work has drained.
   */
 final class Runtime private (
   permit: RuntimePermit,
   isDefault: Boolean,
-  initialUnhandledErrorCallbacks: JsArray[Throwable => Unit]
+  initialUnhandledErrorCallbacks: JsArray[Throwable => Unit],
+  scheduling: Option[Mailbox.Scheduling]
 ) extends Named {
 
   private val unhandledErrorCallbacks: JsArray[Throwable => Unit] = initialUnhandledErrorCallbacks
+
+  /** The mailbox of a scheduled runtime; null for a direct one, which runs a submitted command at once. */
+  private[airstream] val mailbox: Mailbox =
+    if (scheduling.isDefined) new Mailbox(this, scheduling.get.executor, scheduling.get.capacity, scheduling.get.turnsPerDrain)
+    else null
+
+  /** Ids of the commands submitted to this runtime, direct or scheduled; 64-bit, never reused. */
+  private val commandIds: AtomicCounter = new AtomicCounter
+
+  /** The id of the command whose turn the permit holder is running, or `Runtime.NoCommand` outside a command. */
+  private var activeCommand: Long = Runtime.NoCommand
+
+  /** The trace this runtime reports its observation points to, or null for none. */
+  private var sink: RuntimeTrace = null
+
+  /** Report this runtime's observation points to `trace`; see [[RuntimeTrace]]. Install it before the runtime is used. */
+  def traceTo(trace: RuntimeTrace): Unit = {
+    sink = trace
+  }
+
+  /** Where this runtime is in its lifecycle. A direct runtime stays open; a scheduled runtime fails when its scheduler
+    * cannot continue.
+    */
+  def state: RuntimeState = if (mailbox eq null) RuntimeState.Open else mailbox.state
 
   /** Execute `body` inside this runtime: on the permit-holding thread with this runtime as the current context.
     *
@@ -48,14 +81,175 @@ final class Runtime private (
       throw CrossRuntimeAccess(active = active, target = this)
     }
     if (!permit.acquire()) {
-      throw ForeignThreadEntry(this)
+      throw entryRejection
     }
     Runtime.context.set(this)
+    if (sink ne null) {
+      sink.permitAcquired(this)
+    }
     try {
       body
     } finally {
       Runtime.context.set(null)
       permit.release()
+      if (sink ne null) {
+        sink.permitReleased(this)
+        sink.contextRestored(this)
+      }
+    }
+  }
+
+  /** Why a synchronous entry is refused: a scheduled runtime is entered through `submit`, a direct one belongs to
+    * another thread right now.
+    */
+  private def entryRejection: AirstreamError = {
+    if (mailbox ne null) ScheduledRuntimeEntry(this) else ForeignThreadEntry(this)
+  }
+
+  /** Submit a command to this runtime from any thread. The receipt's `accepted` future is settled
+    * when this returns; its `completed` future settles after the command's turn has drained.
+    *
+    * A scheduled runtime admits the command into its mailbox, in FIFO order per runtime, and runs it as a turn on its
+    * executor; it rejects the command, with no effect, when the mailbox is at capacity or the runtime failed. A direct
+    * runtime runs the command at once as a turn on the calling thread, and rejects it when that thread may not enter
+    * (another thread holds the permit, or the caller is inside another runtime's turn). A direct runtime's own turn may
+    * submit to itself: the command then runs inline, and the transactions it creates are children of the running one,
+    * as every nested write is.
+    */
+  def submit(command: => Unit): Receipt = {
+    val id = commandIds.incrementAndGet()
+    if (mailbox ne null) {
+      mailbox.submit(id, () => command)
+    } else {
+      submitDirect(id, () => command)
+    }
+  }
+
+  private def submitDirect(id: Long, body: () => Unit): Receipt = {
+    val completed = Promise[Unit]()
+    if (permit.isHeldByCurrentThread) {
+      try {
+        body()
+        completed.success(())
+      } catch {
+        case NonFatal(err) => completed.failure(err)
+      }
+      new Receipt(id, Future.unit, completed.future)
+    } else {
+      val active = Runtime.context.get
+      val rejection =
+        if (active ne null) Some(CrossRuntimeAccess(active = active, target = this))
+        else if (!permit.acquire()) Some(entryRejection)
+        else None
+      rejection match {
+        case Some(cause) =>
+          val rejected = SubmissionRejected(this, cause.getMessage)
+          completed.failure(rejected)
+          new Receipt(id, Future.failed(rejected), completed.future)
+        case None =>
+          val command = new Mailbox.Command(id, body, completed)
+          runClaimedTurn(command)
+          new Receipt(id, Future.unit, completed.future)
+      }
+    }
+  }
+
+  /** Run `command` as a turn on the calling thread, for the mailbox's drainer: claim the permit, run, release, settle.
+    *
+    * @throws IllegalStateException when the permit could not be claimed (a dispatcher ran the drain on another thread) or
+    *   the turn left the transaction engine torn; the mailbox then fails the runtime
+    */
+  private[airstream] def executeTurn(command: Mailbox.Command): Unit = {
+    if (!permit.claim()) {
+      throw new IllegalStateException(
+        s"${displayName}: a drain ran on thread ${permit.holderName.fold("?")(identity)} while the permit " +
+          permit.boundThreadName.fold("was held")(name => s"is bound to `$name`")
+      )
+    }
+    runClaimedTurn(command)
+  }
+
+  /** The turn itself, with the permit already taken by the calling thread: install the context and the command id, run
+    * the body, restore both on every exit, then settle the receipt. The receipt settles after the permit is released, so a
+    * waiter that wakes finds the runtime idle; a fatal error or a torn engine settles the receipt and then propagates.
+    */
+  private def runClaimedTurn(command: Mailbox.Command): Unit = {
+    Runtime.context.set(this)
+    activeCommand = command.id
+    if (sink ne null) {
+      sink.permitAcquired(this)
+      sink.turnStarted(this, command.id)
+    }
+    var failure: Throwable = null
+    try {
+      command.body()
+    } catch {
+      case err: Throwable => failure = err
+    } finally {
+      activeCommand = Runtime.NoCommand
+      Runtime.context.set(null)
+      permit.release()
+      if (sink ne null) {
+        sink.permitReleased(this)
+        sink.contextRestored(this)
+      }
+    }
+    val torn =
+      if (transactions.isClearState) null
+      else new IllegalStateException(s"${displayName}: the transaction engine is not clear after command ${command.id}")
+    if (sink ne null) {
+      sink.turnCompleted(this, command.id)
+    }
+    if (failure eq null) {
+      if (torn eq null) {
+        command.completed.trySuccess(())
+      } else {
+        command.completed.tryFailure(torn)
+      }
+    } else {
+      command.completed.tryFailure(failure)
+    }
+    if (torn ne null) {
+      throw torn
+    }
+    if ((failure ne null) && !NonFatal(failure)) {
+      throw failure
+    }
+  }
+
+  /** The mailbox failed this runtime: report it once through the unhandled-error channel, so a host without a receipt in
+    * hand still learns that accepted work settled as failed, and to the trace.
+    */
+  private[airstream] def reportFailure(cause: Throwable): Unit = {
+    if (sink ne null) {
+      sink.runtimeFailed(this, cause)
+    }
+    sendUnhandledError(AirstreamError.RuntimeFailed(this, cause))
+  }
+
+  /** The command whose turn the permit holder is running, for the trace. */
+  private[airstream] def tracedCommand: Option[Long] = {
+    if (activeCommand == Runtime.NoCommand) None else Some(activeCommand)
+  }
+
+  /** Report a transaction created in this runtime to the trace, when one is installed. */
+  private[airstream] def traceTransactionCreated(): Unit = {
+    if (sink ne null) {
+      sink.transactionCreated(this, tracedCommand)
+    }
+  }
+
+  /** Report a requested external-observer removal to the trace, when one is installed. */
+  private[airstream] def traceRemovalRequested(observer: Observer[?]): Unit = {
+    if (sink ne null) {
+      sink.removalRequested(this, observer)
+    }
+  }
+
+  /** Report an applied external-observer removal to the trace, when one is installed. */
+  private[airstream] def traceRemovalApplied(observer: Observer[?]): Unit = {
+    if (sink ne null) {
+      sink.removalApplied(this, observer)
     }
   }
 
@@ -173,7 +367,7 @@ final class Runtime private (
         throw CrossRuntimeAccess(active = active, target = this)
       }
       if (!permit.mayAcquire) {
-        throw ForeignThreadEntry(this)
+        throw entryRejection
       }
     }
   }
@@ -206,20 +400,70 @@ object Runtime {
   val default: Runtime = new Runtime(
     RuntimePermit.floating(),
     isDefault = true,
-    initialUnhandledErrorCallbacks = JsArray(AirstreamError.consoleErrorCallback)
+    initialUnhandledErrorCallbacks = JsArray(AirstreamError.consoleErrorCallback),
+    scheduling = None
   )
+
+  /** The `activeCommand` value of a thread outside every command. */
+  private[airstream] val NoCommand: Long = -1L
+
+  /** How many admitted commands a scheduled runtime's mailbox holds before it rejects the next one. */
+  val DefaultCapacity: Int = 4096
+
+  /** How many complete turns one drain runs before it yields the executor to other runtimes. */
+  val DefaultTurnsPerDrain: Int = 32
 
   /** A new runtime bound to the calling thread: only that thread may enter it, every other thread is rejected before any
     * graph access. On Scala.js the binding is moot and the runtime is simply a separate one.
     */
-  def confined(): Runtime = {
+  def confined(): Runtime = create(RuntimePermit.boundToCurrentThread(), None)
+
+  /** A new runtime whose turns run on `executor`, one at a time, with the default capacity and drain budget.
+    *
+    * Commands reach it through `submit` from any thread; `run` is rejected outside its turns. The executor may be a pool
+    * shared with other runtimes: each drain holds one of its threads for at most `DefaultTurnsPerDrain` turns, and the
+    * runtime's identity never depends on which thread ran a turn.
+    */
+  def scheduled(executor: ExecutionContext): Runtime = scheduled(executor, DefaultCapacity, DefaultTurnsPerDrain)
+
+  /** A new runtime whose turns run on `executor`, one at a time; see the one-argument form.
+    *
+    * @param capacity how many admitted commands the mailbox holds; the next `submit` is rejected before any effect
+    * @param turnsPerDrain how many complete turns one drain runs before it yields the executor; never splits a turn
+    */
+  def scheduled(executor: ExecutionContext, capacity: Int, turnsPerDrain: Int): Runtime = {
+    require(capacity > 0, s"capacity must be positive, got $capacity")
+    require(turnsPerDrain > 0, s"turnsPerDrain must be positive, got $turnsPerDrain")
+    create(RuntimePermit.scheduled(), Some(Mailbox.Scheduling(executor, capacity, turnsPerDrain)))
+  }
+
+  /** A new runtime for a UI thread: a scheduled runtime whose dispatcher always runs on the calling thread.
+    *
+    * It is both: the calling thread, the one the dispatcher runs on, may `run` synchronously as on a confined runtime,
+    * and every other thread reaches the graph through `submit`, whose turns the dispatcher runs on that same thread. A
+    * dispatcher that runs a drain on another thread is a misconfiguration: that drain fails the runtime instead of
+    * touching the graph from a foreign thread. Create it on the UI thread.
+    */
+  def dispatched(dispatcher: ExecutionContext): Runtime =
+    create(RuntimePermit.boundToCurrentThread(), Some(Mailbox.Scheduling(dispatcher, DefaultCapacity, DefaultTurnsPerDrain)))
+
+  private def create(permit: RuntimePermit, scheduling: Option[Mailbox.Scheduling]): Runtime = {
     val runtime = new Runtime(
-      RuntimePermit.boundToCurrentThread(),
+      permit,
       isDefault = false,
-      initialUnhandledErrorCallbacks = copyOf(default.unhandledErrorCallbacks)
+      initialUnhandledErrorCallbacks = copyOf(default.unhandledErrorCallbacks),
+      scheduling
     )
     runtime.configureFrom(default)
     runtime
+  }
+
+  /** Reject a blocking wait for `receipt` from inside any runtime's turn, before it blocks. */
+  private[airstream] def requireOutsideTurns(receipt: Receipt): Unit = {
+    val active = context.get
+    if (active ne null) {
+      throw WaitInsideTurn(active, receipt)
+    }
   }
 
   private def copyOf(callbacks: JsArray[Throwable => Unit]): JsArray[Throwable => Unit] = {

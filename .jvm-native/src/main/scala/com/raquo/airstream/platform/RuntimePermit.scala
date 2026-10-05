@@ -13,10 +13,13 @@ import java.util.concurrent.atomic.AtomicReference
   * which is what the default runtime uses so that an application that touches Airstream from one thread at a time keeps
   * working whichever thread that is. A bound permit refuses every other thread even while it is free.
   *
+  * A scheduled permit admits no synchronous entry at all: `acquire` always fails, so `run` from outside a turn is
+  * rejected and the graph is reached through `submit`. Only the mailbox's drainer takes it, with `claim`, for one turn.
+  *
   * Reentrancy needs no counter here: the runtime checks `isHeldByCurrentThread` first and runs a nested body directly,
   * so only the outermost entry acquires and releases.
   */
-final class RuntimePermit private (bound: Thread) {
+final class RuntimePermit private (bound: Thread, admitsEntry: Boolean) {
 
   private val holder: AtomicReference[Thread] = new AtomicReference[Thread](null)
 
@@ -29,14 +32,24 @@ final class RuntimePermit private (bound: Thread) {
   /** True when the calling thread is allowed to acquire the permit right now, without acquiring it. */
   def mayAcquire: Boolean = {
     val current = Thread.currentThread()
-    isBoundToOrUnbound(current) && {
+    admitsEntry && isBoundToOrUnbound(current) && {
       val currentHolder = holder.get()
       (currentHolder eq null) || (currentHolder eq current)
     }
   }
 
-  /** Take the permit for the calling thread; false when another thread holds it or the permit is bound elsewhere. */
+  /** Take the permit for the calling thread's synchronous entry; false when another thread holds it, the permit is bound
+    * elsewhere, or the permit is scheduled and admits no synchronous entry.
+    */
   def acquire(): Boolean = {
+    val current = Thread.currentThread()
+    admitsEntry && isBoundToOrUnbound(current) && holder.compareAndSet(null, current)
+  }
+
+  /** Take the permit for a drainer's turn on the calling thread; false when another thread holds it or the permit is
+    * bound to another thread (a dispatcher that ran the drain elsewhere).
+    */
+  def claim(): Boolean = {
     val current = Thread.currentThread()
     isBoundToOrUnbound(current) && holder.compareAndSet(null, current)
   }
@@ -56,8 +69,11 @@ final class RuntimePermit private (bound: Thread) {
 object RuntimePermit {
 
   /** A permit any thread may take while it is free; one thread at a time. */
-  def floating(): RuntimePermit = new RuntimePermit(bound = null)
+  def floating(): RuntimePermit = new RuntimePermit(bound = null, admitsEntry = true)
 
   /** A permit only the calling thread may ever take. */
-  def boundToCurrentThread(): RuntimePermit = new RuntimePermit(bound = Thread.currentThread())
+  def boundToCurrentThread(): RuntimePermit = new RuntimePermit(bound = Thread.currentThread(), admitsEntry = true)
+
+  /** A permit no synchronous entry may take; only a drainer claims it, on whichever thread the executor runs. */
+  def scheduled(): RuntimePermit = new RuntimePermit(bound = null, admitsEntry = false)
 }

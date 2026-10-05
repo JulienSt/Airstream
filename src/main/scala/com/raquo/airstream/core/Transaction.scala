@@ -47,6 +47,7 @@ class Transaction private[airstream] (
   private val depth: Int = runtime.run(runtime.transactions.peekStack().fold(1)(_.depth + 1))
 
   runtime.run {
+    runtime.traceTransactionCreated()
     if (depth <= runtime.maxDepth || runtime.maxDepth == -1) {
       if (runtime.sharedStart.isInSharedStart) {
         // This delays scheduling transactions until the end of

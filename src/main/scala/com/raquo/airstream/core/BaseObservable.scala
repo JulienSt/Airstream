@@ -191,6 +191,7 @@ with DebugOps[Self, A] {
   protected[airstream] def removeExternalObserver(
     observer: Observer[A]
   ): Unit = {
+    runtime.traceRemovalRequested(observer)
     if (isSafeToRemoveObserver) {
       // remove right now – useful for efficient recursive removals
       removeExternalObserverNow(observer)

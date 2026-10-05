@@ -136,6 +136,50 @@ object AirstreamError {
     override def toString: String = s"CrossRuntimeAccess: ${active.displayName} -> ${target.displayName}"
   }
 
+  /** A thread tried to enter a scheduled runtime synchronously from outside one of its turns. A scheduled runtime runs
+    * its turns on its executor and is reached through `submit`; `run` is only reentrant, inside a turn.
+    */
+  case class ScheduledRuntimeEntry(runtime: Runtime)
+  extends AirstreamError(
+    s"Runtime entry rejected: ${runtime.displayName} is a scheduled runtime and is entered through `submit`; " +
+      "a synchronous `run`, read, write or construction is only possible inside one of its turns."
+  ) {
+
+    override def toString: String = s"ScheduledRuntimeEntry: ${runtime.displayName}"
+  }
+
+  /** `submit` did not admit the command: the mailbox is at capacity, the runtime failed or closed, or a direct runtime
+    * could not run the command on the calling thread. The command never ran and has no effect; a retry is a new submit.
+    */
+  case class SubmissionRejected(runtime: Runtime, reason: String)
+  extends AirstreamError(s"Submission rejected by ${runtime.displayName}: $reason. The command was not admitted and has no effect.") {
+
+    override def toString: String = s"SubmissionRejected: ${runtime.displayName}: $reason"
+  }
+
+  /** The runtime's scheduler could not continue: its executor rejected a drain after commands were accepted, or a turn
+    * left the transaction engine torn. Accepted commands that had not run settle with this error; nothing runs after it.
+    */
+  case class RuntimeFailed(runtime: Runtime, cause: Throwable)
+  extends AirstreamError(s"${runtime.displayName} failed and runs no further command: ${getFullMessage(cause)}") {
+
+    initCause(cause)
+
+    override def toString: String = s"RuntimeFailed: ${runtime.displayName}; cause: $cause"
+  }
+
+  /** A turn tried to block on a receipt. Waiting inside a turn holds the runtime's permit while waiting for work that may
+    * need it; rejected before blocking. Wait from outside every runtime, or react to the future.
+    */
+  case class WaitInsideTurn(active: Runtime, receipt: Receipt)
+  extends AirstreamError(
+    s"Wait rejected: command ${receipt.id} was awaited from inside a turn of ${active.displayName}. " +
+      "Wait for a receipt from outside every runtime, or continue from its `completed` future."
+  ) {
+
+    override def toString: String = s"WaitInsideTurn: ${active.displayName}, command ${receipt.id}"
+  }
+
   // --
 
   // @TODO[API] I feel like unhandled error reporting should live in its own object somewhere. But where?

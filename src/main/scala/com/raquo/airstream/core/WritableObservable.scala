@@ -112,6 +112,7 @@ trait WritableObservable[A] extends Observable[A] {
   override protected[airstream] def removeExternalObserverNow(observer: Observer[A]): Unit = {
     val removed = externalObservers.removeObserverNow(observer)
     if (removed) {
+      runtime.traceRemovalApplied(observer)
       maybeStop()
     }
   }
