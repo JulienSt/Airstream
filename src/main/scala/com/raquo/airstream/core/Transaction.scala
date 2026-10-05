@@ -3,11 +3,8 @@ package com.raquo.airstream.core
 import com.raquo.airstream.combine.MergeStream
 import com.raquo.airstream.core.AirstreamError.TransactionDepthExceeded
 import com.raquo.airstream.custom.CustomSource
-import com.raquo.airstream.platform.{JsArray, JsMap}
 import com.raquo.airstream.platform.{undefined, UndefOr}
 import com.raquo.airstream.util.JsPriorityQueue
-
-import scala.annotation.tailrec
 
 /** Transaction is a moment in time during which Airstream guarantees no FRP glitches.
   *
@@ -21,15 +18,20 @@ import scala.annotation.tailrec
   *
   * See the docs for more details.
   *
+  * A transaction belongs to the runtime it was created in: the public constructor takes the runtime the current thread
+  * is inside (the default runtime when it is inside none), and Airstream's own observables pass theirs. Creating a
+  * transaction enters that runtime, so a root `Transaction(...)` is a complete turn: it rejects a foreign thread before
+  * touching any state, runs the transaction and its descendants, and releases the runtime on return.
+  *
   * @param code Note: Must not throw!
   */
-class Transaction(private[Transaction] var code: Transaction => Any) {
+class Transaction private[airstream] (
+  private[airstream] val runtime: Runtime,
+  private[core] var code: Transaction => Any
+) {
 
-  // val id = Transaction.nextId()
-
-  // println(s"--CREATE Trx@${id}")
-
-  // override def toString: String = s"Trx@${id}"
+  /** Create a transaction in the runtime the current thread is inside, or in the default runtime. */
+  def this(code: Transaction => Any) = this(Runtime.current, code)
 
   /** Priority queue of pending observables: sorted by their topoRank.
     *
@@ -42,33 +44,31 @@ class Transaction(private[Transaction] var code: Transaction => Any) {
     * than this `depth` due to the `postStartTransactions` mechanism,
     * but this is good enough for `maxDepth` purposes.
     */
-  private val depth: Int = Transaction.pendingTransactions.peekStack().fold(1)(_.depth + 1)
+  private val depth: Int = runtime.run(runtime.transactions.peekStack().fold(1)(_.depth + 1))
 
-  if (depth <= Transaction.maxDepth || Transaction.maxDepth == -1) {
-    if (Transaction.onStart._isInSharedStart) {
-      // This delays scheduling transactions until the end of
-      // the shared start transaction
-      // println(s">>> onStart.postStartTransactions.push($this)")
-      Transaction.onStart.postStartTransactions.push(this)
+  runtime.run {
+    if (depth <= runtime.maxDepth || runtime.maxDepth == -1) {
+      if (runtime.sharedStart.isInSharedStart) {
+        // This delays scheduling transactions until the end of
+        // the shared start transaction
+        runtime.sharedStart.enqueuePostStart(this)
+      } else {
+        runtime.transactions.add(this)
+      }
     } else {
-      // println(s">>> Transaction.pendingTransactions.add($this)")
-      Transaction.pendingTransactions.add(this)
+      // Short circuit to break out of infinite loops without pinning CPU or crashing the whole app.
+      // See e.g. https://github.com/raquo/Laminar/issues/116
+      // This transaction will not be executed. Instead, it is reported in unhandled errors.
+      // Other transactions will continue executing, if you have any that don't exceed the depth.
+      // We don't throw an exception here because I'm afraid this could break things too violently,
+      // and it's not like there is a reasonable way to locally handle such a condition anyway.
+      runtime.sendUnhandledError(TransactionDepthExceeded(this, runtime.maxDepth))
     }
-  } else {
-    // Short circuit to break out of infinite loops without pinning CPU or crashing the whole app.
-    // See e.g. https://github.com/raquo/Laminar/issues/116
-    // This transaction will not be executed. Instead, it is reported in unhandled errors.
-    // Other transactions will continue executing, if you have any that don't exceed the depth.
-    // We don't throw an exception here because I'm afraid this could break things too violently,
-    // and it's not like there is a reasonable way to locally handle such a condition anyway.
-    AirstreamError.sendUnhandledError(TransactionDepthExceeded(this, Transaction.maxDepth))
   }
 
-  @inline private[Transaction] def resolvePendingObservables(): Unit = {
-    // println(s"$this resolvePendingObservables (n=${maybePendingObservables.map(_.size).getOrElse(0)})")
+  @inline private[core] def resolvePendingObservables(): Unit = {
     maybePendingObservables.foreach { pendingObservables =>
       while (pendingObservables.nonEmpty) {
-        // dom.console.log("RANKS: ", pendingObservables.debugQueue.map(_.topoRank))
         // Fire the first pending observable and remove it from the list
         pendingObservables.dequeue().syncFire(this)
       }
@@ -101,6 +101,11 @@ object Transaction {
     */
   def apply(code: Transaction => Unit): Unit = new Transaction(code)
 
+  /** Create a new transaction in `runtime`: the form Airstream's observables use, so a transaction is filed with the
+    * runtime of the observable that emits in it rather than with whatever the current thread happens to be inside.
+    */
+  private[airstream] def apply(runtime: Runtime, code: Transaction => Unit): Unit = new Transaction(runtime, code)
+
   /** How many _nested_ transactions you can have.
     *
     * Airstream will refuse to schedule any transaction that exceeds this limit.
@@ -122,8 +127,15 @@ object Transaction {
     * if you do actually have an infinite loop, your code will pin the
     * CPU and your single threaded Scala.js app will freeze – not
     * something you want, especially on your users' devices!
+    *
+    * This is the default runtime's limit. A runtime created with `Runtime.confined()` takes the value in force at its
+    * creation and keeps its own copy (`runtime.maxDepth`).
     */
-  var maxDepth: Int = 1000
+  def maxDepth: Int = Runtime.default.maxDepth
+
+  def maxDepth_=(value: Int): Unit = {
+    Runtime.default.maxDepth = value
+  }
 
   /** This object holds a queue of callbacks that should be executed
     * when all observables finish starting. This lets `signal.changes`
@@ -137,20 +149,17 @@ object Transaction {
     * most reasonable use cases. Users might need to wrap some of their code
     * into `onStart.shared` manually if they manage subscriptions manually.
     *
+    * The state behind these methods belongs to a runtime (see [[Runtime]]); this object addresses the runtime the
+    * current thread is inside, which is the default runtime for code that never creates another.
+    *
     * See https://github.com/raquo/Airstream/#restarting-streams-that-depend-on-signals--signalchanges-
     */
   object onStart {
 
-    private[Transaction] var _isInSharedStart: Boolean = false
-
     /** Whether we're executing synchronously inside a shared-start block.
       * Read by custom sources to decide how to schedule events that are fired onStart.
       */
-    def isInSharedStart: Boolean = _isInSharedStart
-
-    private val pendingCallbacks: JsArray[Transaction => Unit] = JsArray()
-
-    private[Transaction] val postStartTransactions: JsArray[Transaction] = JsArray()
+    def isInSharedStart: Boolean = Runtime.current.sharedStart.isInSharedStart
 
     /* Put the code that (potentially) adds more than one observer inside.
      * If that code causes `signal.updates` to restart (and emit the signal's
@@ -181,25 +190,8 @@ object Transaction {
      * See https://github.com/raquo/Airstream/#restarting-streams-that-depend-on-signals--signalchanges-
      */
     def shared[A](code: => A, when: Boolean = true): A = {
-      if (_isInSharedStart || !when) {
-        // - We are already executing inside the `code` argument passed
-        //   to another onStart.shared block, so adding another try-catch
-        //   block is not necessary: that other block will take care of it.
-        // - Or, the caller explicitly doesn't want a shared block now (!when)
-        code
-      } else {
-        // println("> START SHARED")
-        _isInSharedStart = true
-        val result =
-          try {
-            code
-          } finally {
-            _isInSharedStart = false
-            resolve()
-          }
-        // println("< END SHARED")
-        result
-      }
+      val runtime = Runtime.current
+      runtime.run(runtime.sharedStart.shared(code, when))
     }
 
     /** Add a callback to execute once the new shared transaction gets executed.
@@ -213,234 +205,10 @@ object Transaction {
       *
       * @param callback - Must not throw!
       */
-    def add(callback: Transaction => Unit): Unit = {
-      // println(s"// add callback ${callback.hashCode()}")
-      if (!_isInSharedStart) {
-        throw new Exception("Transaction.onStart.add was called outside of a Transaction.onStart.shared block. This is likely a bug in Airstream.")
-      }
-      pendingCallbacks.push(callback)
-    }
-
-    private def resolve(): Unit = {
-      if (pendingCallbacks.length == 0) {
-        // println("- no pending callbacks")
-        if (postStartTransactions.length > 0) {
-          // println(s"> CREATE ALT RESOLVE TRX. Num trx-s = ${postStartTransactions.length}")
-          Transaction { _ =>
-            while (postStartTransactions.length > 0) {
-              pendingTransactions.add(postStartTransactions.shift())
-            }
-          }
-        }
-      } else {
-        // println(s"> CREATE RESOLVE TRX. Num callbacks = ${pendingCallbacks.length}")
-        Transaction { trx =>
-          // #TODO[Integrity] What if calling callback(trx) calls onStart.add?
-          //  Is it ok to put it into the same list, or should it go into a new list,
-          //  to be executed in a separate transaction?
-          while (pendingCallbacks.length > 0) {
-            val callback = pendingCallbacks.shift()
-            // println(s"// resolve callback ${callback.hashCode()}")
-            try {
-              callback(trx)
-            } catch {
-              case err: Throwable =>
-                // #TODO[Integrity] I'm not 100% sure that this is what we need to do here.
-                AirstreamError.sendUnhandledError(err)
-            }
-          }
-          // println("// resolved any callbacks")
-          // Any transactions created during the shared start
-          // that weren't converted to callbacks, will now be
-          // scheduled, and will be executed after this shared
-          // transaction finishes (they are marked as its
-          // children), in the same order as they were created.
-          // println(s"postStartTransactions.length = ${postStartTransactions.length}")
-          while (postStartTransactions.length > 0) {
-            val _trx = postStartTransactions.shift()
-            // println(s"- pendingTransactions.add(${t})")
-            pendingTransactions.add(_trx)
-          }
-        }
-      }
-    }
+    def add(callback: Transaction => Unit): Unit = Runtime.current.sharedStart.add(callback)
   }
 
-  private object pendingTransactions {
+  private[core] def isClearState: Boolean = Runtime.current.transactions.isClearState
 
-    /** First transaction is the top of the stack, currently running.
-      * That transaction's parent transaction is the second item, and so on.
-      */
-    private val stack: JsArray[Transaction] = JsArray()
-
-    private val children: JsMap[Transaction, JsArray[Transaction]] = new JsMap()
-
-    def add(newTransaction: Transaction): Unit = {
-      // 1. Regarding calling `run`:
-      //    If a transaction is currently running, the new transaction will be triggered
-      //    from the .done() call after the current transaction finishes.
-      //    Otherwise, if there are no pending transactions other than this new transaction,
-      //    we need to run this transaction right now because no one will do it for us.
-      // 2. Regarding the queue:
-      //    If a transaction is currently running, add newTransaction to its children.
-      //    They will run after the current transaction finishes.
-      peekStack().fold {
-        // #TODO[Performance] This pushToStack is taking up 15% of cpu time on a trivial eventbus --> Observer.empty benchmark.
-        //  Should we try to optimize it? Since we run the trx immediately, perhaps we could simply set a flag instead of pushing it to the array?
-        //  Consider this later when I have moer comprehensive benchmarks.
-        pushToStack(newTransaction)
-        run(newTransaction)
-        done(newTransaction)
-      } { currentTransaction =>
-        enqueueChild(parent = currentTransaction, newChild = newTransaction)
-      }
-    }
-
-    /** #Warning: you MUST call done(trx) after calling `run(trx)`! */
-    @tailrec def done(transaction: Transaction): Unit = {
-      // println(s"--done trx: ${transaction.id}")
-      // if (lastId > 50) {
-      //  throw new Exception(">>> Overflow!!!!!")
-      // }
-      // println("current stack (LEFT is first): " + stack.map(_.id))
-      // println("current children: " + pendingTransactions.children.map(t => (t._1.id, t._2.map(_.id))))
-      if (!peekStack().contains(transaction)) {
-        // @TODO[Integrity] Should we really throw here?
-        throw new Exception("Transaction queue error: Completed transaction is not the first in stack. This is a bug in Airstream.")
-      }
-
-      putNextTransactionOnStack(doneTransaction = transaction)
-
-      transaction.code = throwDeadTrxError // stop holding up `trx` contents in memory
-
-      val maybeNextTransaction = peekStack()
-      if (maybeNextTransaction == undefined) {
-        if (children.size > 0) {
-          // dom.console.log(s"Stack is empty but children remain: ${children.map(t => (t._1.id, t._2.map(_.id)))}")
-          var numChildren = 0
-          children.forEach((transactions, _) => numChildren += transactions.length)
-          throw new Exception(s"Transaction queue error: Stack cleared, but a total of ${numChildren} children for ${children.size} transactions remain. This is a bug in Airstream.")
-        }
-      } else {
-        val nextTransaction = maybeNextTransaction.asInstanceOf[Transaction]
-        run(nextTransaction)
-        done(nextTransaction)
-      }
-    }
-
-    /* If this transaction has children remaining, set first child to be run next.
-     * Otherwise, remove transaction from the stack and do the same for next transaction on stack.
-     */
-    @tailrec def putNextTransactionOnStack(doneTransaction: Transaction): Unit = {
-      // We use depth-first because of https://github.com/raquo/Airstream/issues/39
-      val maybeNextChildTrx = dequeueChild(parent = doneTransaction)
-      if (maybeNextChildTrx == undefined) {
-        // No children, this transaction is truly done now, remove it from the stack.
-        popStack()
-        // If any transactions left in the stack, recurse
-        val maybeParentTransaction = peekStack()
-        if (maybeParentTransaction != undefined) {
-          val parentTransaction = maybeParentTransaction.asInstanceOf[Transaction]
-          putNextTransactionOnStack(doneTransaction = parentTransaction)
-        }
-      } else {
-        val nextChildTrx = maybeNextChildTrx.asInstanceOf[Transaction]
-        // Found a child transaction, so put it on the stack, so that it wil run next.
-        // Once that child is all done, it will be popped from the stack, and we will
-        pushToStack(nextChildTrx)
-      }
-    }
-
-    /** Returns the top of the stack, i.e. the currently executing transaction, if any. */
-    def peekStack(): UndefOr[Transaction] = {
-      // in Javascript, if array is empty, this does not fail, but instead returns `undefined`.
-      stack(0)
-    }
-
-    def isClearState: Boolean = stack.length == 0 && children.size == 0
-
-    private def maybeChildrenFor(transaction: Transaction): UndefOr[JsArray[Transaction]] = {
-      children.get(transaction)
-    }
-
-    private def pushToStack(transaction: Transaction): Unit = {
-      stack.unshift(transaction)
-    }
-
-    private def popStack(): UndefOr[Transaction] = {
-      // JsArray.shift returns `undefined` if array is empty
-      stack.shift()
-    }
-
-    private def enqueueChild(parent: Transaction, newChild: Transaction): Unit = {
-      // println(s"enqueueChild parent = ${parent.id} newChild = ${newChild.id}")
-      val maybeChildren = maybeChildrenFor(parent)
-      val noChildrenFound = maybeChildren.isEmpty
-      val newChildren = maybeChildren.getOrElse(JsArray())
-      newChildren.push(newChild)
-      if (noChildrenFound) {
-        children.set(parent, newChildren)
-      }
-    }
-
-    private def dequeueChild(parent: Transaction): UndefOr[Transaction] = {
-      // println(s"dequeueChild parent = ${parent.id}")
-      val maybeParentChildren = maybeChildrenFor(parent)
-      maybeParentChildren.filter(_.length > 0).map { parentChildren =>
-        val nextChild = parentChildren.shift()
-        // println(s"- found some children, first: ${nextChild.id}")
-        if (parentChildren.length == 0) {
-          children.delete(parent)
-          // println("- no children left for this parent, removed parent.")
-        } else {
-          // println("- removed child, some remaining")
-        }
-        nextChild
-      }
-    }
-  }
-
-  private[core] def isClearState: Boolean = pendingTransactions.isClearState
-
-  // private var maybeCurrentTransaction: UndefOr[Transaction] = undefined
-
-  private[airstream] def currentTransaction(): UndefOr[Transaction] = pendingTransactions.peekStack()
-
-  /** #Warning: you MUST call `done(trx)` after calling `run(trx)`! */
-  private def run(transaction: Transaction): Unit = {
-    // println(s"--START ${transaction}")
-    // maybeCurrentTransaction = transaction
-    try {
-      transaction.code(transaction)
-      transaction.resolvePendingObservables()
-    } catch {
-      case err: Throwable =>
-        // #TODO[Integrity] I'm not 100% sure that this is what we want to do here,
-        //  but I think it's better than not handling the error at all.
-        AirstreamError.sendUnhandledError(err)
-    } finally {
-      // @TODO[API,Integrity]
-      //  This block is executed regardless of whether an exception is thrown in `code` or not,
-      //  but it doesn't actually catch the exception, so `Transaction(code)` actually throws
-      //  iff `code` throws AND the transaction was created while no other transaction is running
-      //  This is not very predictable, so we should fix it.
-      // println(s"--END ${transaction}")
-      // maybeCurrentTransaction = undefined
-    }
-  }
-
-  private val throwDeadTrxError: Transaction => Any = { trx =>
-    throw new Exception(s"Attempted to run Transaction $trx after it was already executed.")
-  }
-
-  // private var lastTransactionId: Int = 0
-  //
-  // private def nextId(): Int = {
-  //   if (lastTransactionId == Int.MaxValue) { // Note: This is lower than JS native Number.MAX_SAFE_INTEGER
-  //     lastTransactionId = 1
-  //   } else {
-  //     lastTransactionId += 1
-  //   }
-  //   lastTransactionId
-  // }
+  private[airstream] def currentTransaction(): UndefOr[Transaction] = Runtime.current.transactions.peekStack()
 }

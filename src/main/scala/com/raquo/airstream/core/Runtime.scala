@@ -53,6 +53,20 @@ final class Runtime private (permit: RuntimePermit, isDefault: Boolean) extends 
     }
   }
 
+  /** The transaction stack and child queues of this runtime. Touched only under the permit. */
+  private[airstream] val transactions: TransactionEngine = new TransactionEngine(this)
+
+  /** The shared-start batching state of this runtime. Touched only under the permit. */
+  private[airstream] val sharedStart: SharedStart = new SharedStart(this)
+
+  /** How many nested transactions this runtime schedules before it reports `TransactionDepthExceeded` instead; -1
+    * disables the check. See `Transaction.maxDepth` for the rationale.
+    */
+  var maxDepth: Int = 1000
+
+  /** Report an error nothing in the graph handled. Routed through the process-wide callbacks for now. */
+  def sendUnhandledError(err: Throwable): Unit = AirstreamError.sendUnhandledError(err)
+
   /** True while some thread is inside `run` on this runtime. */
   def isEntered: Boolean = permit.isHeld
 
