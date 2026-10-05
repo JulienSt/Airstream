@@ -1,7 +1,7 @@
 package com.raquo.airstream.eventbus
 
 import com.raquo.airstream.common.InternalNextErrorObserver
-import com.raquo.airstream.core.{EventStream, Protected, Transaction, WritableStream}
+import com.raquo.airstream.core.{EventStream, Protected, Runtime, Transaction, WritableStream}
 import com.raquo.airstream.platform.JsArray
 
 class EventBusStream[A] private[eventbus] (
@@ -16,6 +16,7 @@ class EventBusStream[A] private[eventbus] (
   override protected val topoRank: Int = 1
 
   @inline private[eventbus] def addSource(sourceStream: EventStream[A]): Unit = {
+    Runtime.requireSame(runtime, sourceStream.runtime)
     sourceStreams.push(sourceStream)
     if (isStarted) {
       sourceStream.addInternalObserver(this, shouldCallMaybeWillStart = true)

@@ -25,7 +25,7 @@ class CombineStreamN[A, Out](
 
   override protected val topoRank: Int = Protected.maxTopoRank(parents) + 1
 
-  override protected[airstream] val runtime: Runtime = Runtime.of(parents)
+  override protected[airstream] val runtime: Runtime = Runtime.sharedBy(parents)
 
   private val maybeLastParentValues: JsArray[UndefOr[Try[A]]] = parents.map(_ => undefined)
 

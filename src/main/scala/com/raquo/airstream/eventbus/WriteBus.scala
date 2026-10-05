@@ -19,6 +19,7 @@ class WriteBus[A](
     * To remove this source manually, call .kill() on the resulting Subscription.
     */
   def addSource(sourceStream: EventStream[A])(implicit owner: Owner): Subscription = stream.runtime.run {
+    Runtime.requireSame(stream.runtime, owner.runtime)
     stream.addSource(sourceStream)
     new Subscription(owner, cleanup = () => {
       stream.removeSource(sourceStream)
@@ -115,9 +116,9 @@ object WriteBus {
     Transaction(runtimeOf(values)(_.tuple._1))(trx => values.foreach(emitTryValue(_, trx)))
   }
 
-  /** The runtime a batch emission runs in. */
+  /** The runtime a batch emission runs in; a mixed-runtime batch is rejected here, before any emission. */
   private def runtimeOf[A](items: Seq[A])(bus: A => WriteBus[?]): Runtime = {
-    Runtime.of(items.map(item => bus(item).stream.runtime))
+    Runtime.sharedBy(items.map(item => bus(item).stream.runtime))
   }
 
   @inline private def emitValue[A](tuple: BusTuple[A], transaction: Transaction): Unit = {

@@ -1,7 +1,7 @@
 package com.raquo.airstream.flatten
 
 import com.raquo.airstream.common.InternalTryObserver
-import com.raquo.airstream.core.{EventStream, InternalObserver, Protected, Signal, Transaction, WritableStream}
+import com.raquo.airstream.core.{EventStream, InternalObserver, Protected, Runtime, Signal, Transaction, WritableStream}
 import com.raquo.airstream.platform.{undefined, UndefOr}
 
 import scala.util.{Success, Try}
@@ -49,6 +49,8 @@ class SwitchSignalStream[A](
   private def switchToSignal(
     nextSignalTry: Try[Signal[A]]
   ): Unit = {
+    // Validated before any subscription changes: a signal of another runtime never becomes a synchronous inner signal.
+    nextSignalTry.foreach(nextSignal => Runtime.requireSame(runtime, nextSignal.runtime))
     val isSameSignal = maybeCurrentSignalTry.fold(false) { currentSignalTry =>
       (nextSignalTry, currentSignalTry) match {
         case (Success(nextSignal), Success(currentSignal)) => nextSignal eq currentSignal

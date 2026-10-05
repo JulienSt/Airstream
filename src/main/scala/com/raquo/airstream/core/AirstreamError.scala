@@ -110,6 +110,20 @@ object AirstreamError {
     override def toString: String = s"ForeignThreadEntry: ${runtime.displayName}"
   }
 
+  /** A synchronous edge, an owner or a batch would have connected observables of different runtimes: a combine, merge or
+    * sample over them, a bus source from another runtime, an owner for another runtime's subscription, a mixed batch write
+    * or a dynamic inner observable of another runtime. Rejected at validation, before any subscription or value changes;
+    * the supported connection between runtimes is an explicit asynchronous bridge.
+    */
+  case class CrossRuntimeEdge(runtimes: Seq[Runtime])
+  extends AirstreamError(
+    s"Cross-runtime edge rejected: observables of ${runtimes.map(_.displayName).mkString(", ")} cannot be connected " +
+      "synchronously. Keep a graph inside one runtime, or connect runtimes through an explicit asynchronous bridge."
+  ) {
+
+    override def toString: String = s"CrossRuntimeEdge: ${runtimes.map(_.displayName).mkString(", ")}"
+  }
+
   /** Code inside one runtime's turn tried to enter another runtime synchronously. Rejected before the second runtime's
     * permit is touched, so two runtimes cannot wait on each other; cross-runtime communication is asynchronous.
     */

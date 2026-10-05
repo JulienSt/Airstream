@@ -1,7 +1,7 @@
 package com.raquo.airstream.flatten
 
 import com.raquo.airstream.common.InternalNextErrorObserver
-import com.raquo.airstream.core.{EventStream, InternalObserver, Observable, Protected, Signal, Transaction, WritableStream}
+import com.raquo.airstream.core.{EventStream, InternalObserver, Observable, Protected, Runtime, Signal, Transaction, WritableStream}
 import com.raquo.airstream.platform.JsArray
 
 import scala.util.{Failure, Success}
@@ -79,6 +79,8 @@ class ConcurrentStream[A](
   }
 
   private def maybeAddStream(stream: EventStream[A], addInternalObserver: Boolean): Unit = {
+    // Validated before the stream is remembered or subscribed: inner streams stay inside this runtime.
+    Runtime.requireSame(runtime, stream.runtime)
     if (accumulatedStreams.indexOf(stream) == -1) {
       accumulatedStreams.push(stream)
       if (addInternalObserver) {

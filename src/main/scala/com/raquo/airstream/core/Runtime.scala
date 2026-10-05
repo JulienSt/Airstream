@@ -1,6 +1,6 @@
 package com.raquo.airstream.core
 
-import com.raquo.airstream.core.AirstreamError.{CrossRuntimeAccess, ForeignThreadEntry}
+import com.raquo.airstream.core.AirstreamError.{CrossRuntimeAccess, CrossRuntimeEdge, ForeignThreadEntry}
 import com.raquo.airstream.platform.{DevTools, DiagnosticLevel, DiagnosticSinks, JsArray, RuntimePermit, RuntimeTimers, ThreadSlot}
 
 /** A runtime is an identity plus the state that Airstream used to keep in process-wide singletons: the transaction
@@ -210,15 +210,45 @@ object Runtime {
     copy
   }
 
-  /** The runtime a derived observable with these parents belongs to: the parents' runtime, or the current one when
-    * there are no parents.
+  /** The one runtime these parents share, for a derived observable over all of them; the current runtime when there
+    * are no parents.
+    *
+    * @throws CrossRuntimeEdge when the parents belong to different runtimes; checked before the observable connects
     */
-  private[airstream] def of(parents: JsArray[? <: Observable[?]]): Runtime = {
-    if (parents.length == 0) current else parents(0).runtime
+  private[airstream] def sharedBy(parents: JsArray[? <: Observable[?]]): Runtime = {
+    if (parents.length == 0) {
+      current
+    } else {
+      val shared = parents(0).runtime
+      parents.forEach(parent => requireSame(shared, parent.runtime))
+      shared
+    }
   }
 
-  /** The runtime a batch over these participants belongs to: theirs, or the current one when the batch is empty. */
-  private[airstream] def of(runtimes: Seq[Runtime]): Runtime = runtimes.headOption.getOrElse(current)
+  /** The one runtime `first` and `others` share, for a sampling observable. */
+  private[airstream] def sharedBy(first: Observable[?], others: JsArray[? <: Observable[?]]): Runtime = {
+    val shared = first.runtime
+    others.forEach(other => requireSame(shared, other.runtime))
+    shared
+  }
+
+  /** The one runtime a batch over these participants runs in; the current runtime when the batch is empty.
+    *
+    * @throws CrossRuntimeEdge when the participants belong to different runtimes; checked before any write
+    */
+  private[airstream] def sharedBy(runtimes: Seq[Runtime]): Runtime = {
+    runtimes.headOption.fold(current) { shared =>
+      runtimes.foreach(runtime => requireSame(shared, runtime))
+      shared
+    }
+  }
+
+  /** Reject an edge between `expected` and `actual` unless they are the same runtime. */
+  private[airstream] def requireSame(expected: Runtime, actual: Runtime): Unit = {
+    if (expected ne actual) {
+      throw CrossRuntimeEdge(Seq(expected, actual))
+    }
+  }
 
   /** The runtime whose turn the current thread is inside, or the default runtime when it is inside none. */
   def current: Runtime = {

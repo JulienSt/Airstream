@@ -26,7 +26,7 @@ class SampleCombineStreamN[A, Out](
   override protected val topoRank: Int = Protected.maxTopoRank(samplingStream, sampledSignals) + 1
 
   // From the constructor parameters: `parents` is assembled further down this body and is not initialised yet here.
-  override protected[airstream] val runtime: Runtime = samplingStream.runtime
+  override protected[airstream] val runtime: Runtime = Runtime.sharedBy(samplingStream, sampledSignals)
 
   private var maybeLastSamplingValue: UndefOr[Try[A]] = undefined
 

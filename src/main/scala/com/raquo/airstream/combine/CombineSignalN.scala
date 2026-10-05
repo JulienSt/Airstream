@@ -19,7 +19,7 @@ class CombineSignalN[A, Out](
 
   override protected val topoRank: Int = Protected.maxTopoRank(0, parents) + 1
 
-  override protected[airstream] val runtime: Runtime = Runtime.of(parents)
+  override protected[airstream] val runtime: Runtime = Runtime.sharedBy(parents)
 
   override protected val parentObservers: JsArray[InternalParentObserver[?]] = {
     parents.mapWithIndex { (parent, ix) =>

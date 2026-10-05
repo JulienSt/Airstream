@@ -62,6 +62,8 @@ trait WritableObservable[A] extends Observable[A] {
 
   override def addObserver(observer: Observer[A])(implicit owner: Owner): Subscription = {
     runtime.run {
+      // An owner only owns subscriptions of its own runtime; rejected before the observer is added.
+      Runtime.requireSame(runtime, owner.runtime)
       runtime.sharedStart.shared({
         maybeWillStart()
         val subscription = addExternalObserver(observer, owner)

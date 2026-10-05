@@ -27,7 +27,7 @@ class MergeStream[A](
 
   override protected val topoRank: Int = Protected.maxTopoRank(parents) + 1
 
-  override protected[airstream] val runtime: Runtime = Runtime.of(parents)
+  override protected[airstream] val runtime: Runtime = Runtime.sharedBy(parents)
 
   private var lastFiredInTrx: UndefOr[Transaction] = undefined
 

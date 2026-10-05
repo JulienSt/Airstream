@@ -365,9 +365,9 @@ object Var {
     hasDuplicateKeys(items)(item => v(item).underlyingVar)
   }
 
-  /** The runtime a batch of Vars is written in. */
+  /** The runtime a batch of Vars is written in; a mixed-runtime batch is rejected here, before any write. */
   private def runtimeOf[A](items: Seq[A])(v: A => Var[?]): Runtime = {
-    Runtime.of(items.map(item => v(item).runtime))
+    Runtime.sharedBy(items.map(item => v(item).runtime))
   }
 
   /** Provides methods on Var: split, splitMutate */

@@ -1,7 +1,7 @@
 package com.raquo.airstream.flatten
 
 import com.raquo.airstream.common.InternalTryObserver
-import com.raquo.airstream.core.{InternalObserver, Protected, Signal, Transaction, WritableSignal}
+import com.raquo.airstream.core.{InternalObserver, Protected, Runtime, Signal, Transaction, WritableSignal}
 import com.raquo.airstream.platform.{undefined, UndefOr}
 
 import scala.util.{Success, Try}
@@ -61,6 +61,7 @@ class SwitchSignal[A](
     // it up once this signal finishes starting.
 
     val nextSignalTry = parent.tryNow()
+    nextSignalTry.foreach(nextSignal => Runtime.requireSame(runtime, nextSignal.runtime))
 
     if (isSameSignal(nextSignalTry, currentSignalTry)) {
       // println(" - same signal")
@@ -86,6 +87,8 @@ class SwitchSignal[A](
   }
 
   def switchToSignalOnline(nextSignalTry: Try[Signal[A]]): Unit = {
+    // Validated before any subscription changes: a signal of another runtime never becomes a synchronous inner signal.
+    nextSignalTry.foreach(nextSignal => Runtime.requireSame(runtime, nextSignal.runtime))
 
     if (isSameSignal(nextSignalTry, currentSignalTry)) {
       // If we're switching to the same signal, it means that this same signal already has our internal observer,

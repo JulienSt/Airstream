@@ -1,7 +1,7 @@
 package com.raquo.airstream.timing
 
 import com.raquo.airstream.common.{InternalTryObserver, SingleParentStream}
-import com.raquo.airstream.core.{Observable, Protected, SyncObservable, Transaction}
+import com.raquo.airstream.core.{Observable, Protected, Runtime, SyncObservable, Transaction}
 import com.raquo.airstream.platform.{undefined, UndefOr}
 
 import scala.util.Try
@@ -19,6 +19,8 @@ class SyncDelayStream[A](
   private var maybePendingValue: UndefOr[Try[A]] = undefined
 
   override protected val topoRank: Int = (Protected.topoRank(parent) max Protected.topoRank(after)) + 1
+
+  Runtime.requireSame(runtime, after.runtime)
 
   override protected def onTry(nextValue: Try[A], transaction: Transaction): Unit = {
     // dom.console.log(s"> ${this} > onTry > ${nextValue}")

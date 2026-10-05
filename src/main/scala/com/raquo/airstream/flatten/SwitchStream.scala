@@ -1,7 +1,7 @@
 package com.raquo.airstream.flatten
 
 import com.raquo.airstream.common.InternalNextErrorObserver
-import com.raquo.airstream.core.{EventStream, InternalObserver, Observable, Protected, Signal, Transaction, WritableStream}
+import com.raquo.airstream.core.{EventStream, InternalObserver, Observable, Protected, Runtime, Signal, Transaction, WritableStream}
 import com.raquo.airstream.platform.{undefined, UndefOr}
 
 import scala.util.{Failure, Success, Try}
@@ -97,6 +97,8 @@ class SwitchStream[I, O](
   }
 
   private def switchToNextStream(nextStream: EventStream[O], isStarting: Boolean): Unit = {
+    // Validated before any subscription changes: a stream of another runtime never becomes a synchronous inner stream.
+    Runtime.requireSame(runtime, nextStream.runtime)
     val isSameStream = maybeCurrentEventStreamTry.exists { currentStream =>
       currentStream.isSuccess && (currentStream.get eq nextStream)
     }
