@@ -93,6 +93,32 @@ object AirstreamError {
     override def toString: String = s"TransactionDepthExceeded: $trx; maxDepth: $depth"
   }
 
+  /** A thread tried to enter a runtime whose permit it may not take: the runtime is bound to another thread, or another
+    * thread is inside it right now. Thrown at the call site before any graph state is read, never after blocking.
+    */
+  case class ForeignThreadEntry(runtime: Runtime)
+  extends AirstreamError(
+    s"Runtime entry rejected: ${runtime.displayName} " +
+      runtime.boundThreadName.fold("")(name => s"is bound to thread `$name` ") +
+      runtime.holderName.fold("")(name => s"is held by thread `$name` ") +
+      "and may not be entered from the current thread. Enter it from its own thread, or create your graph in a runtime of this thread."
+  ) {
+
+    override def toString: String = s"ForeignThreadEntry: ${runtime.displayName}"
+  }
+
+  /** Code inside one runtime's turn tried to enter another runtime synchronously. Rejected before the second runtime's
+    * permit is touched, so two runtimes cannot wait on each other; cross-runtime communication is asynchronous.
+    */
+  case class CrossRuntimeAccess(active: Runtime, target: Runtime)
+  extends AirstreamError(
+    s"Cross-runtime access rejected: ${target.displayName} was entered synchronously from inside ${active.displayName}. " +
+      "Observables of different runtimes do not share a synchronous graph; use an explicit asynchronous bridge."
+  ) {
+
+    override def toString: String = s"CrossRuntimeAccess: ${active.displayName} -> ${target.displayName}"
+  }
+
   // --
 
   // @TODO[API] I feel like unhandled error reporting should live in its own object somewhere. But where?
