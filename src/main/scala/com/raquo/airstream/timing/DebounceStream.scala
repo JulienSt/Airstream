@@ -2,7 +2,7 @@ package com.raquo.airstream.timing
 
 import com.raquo.airstream.common.{InternalTryObserver, SingleParentStream}
 import com.raquo.airstream.core.{EventStream, Transaction}
-import com.raquo.airstream.platform.{undefined, Timers, UndefOr}
+import com.raquo.airstream.platform.{undefined, RuntimeTimers, UndefOr}
 
 import scala.util.Try
 
@@ -23,7 +23,7 @@ class DebounceStream[A](
   intervalMs: Int
 ) extends SingleParentStream[A, A] with InternalTryObserver[A] {
 
-  private var maybeLastTimeoutHandle: UndefOr[Timers.TimerHandle] = undefined
+  private var maybeLastTimeoutHandle: UndefOr[RuntimeTimers.TimerHandle] = undefined
 
   override protected val topoRank: Int = 1
 
@@ -31,15 +31,15 @@ class DebounceStream[A](
     * This stream only emits when the parent has stopped emitting for [[intervalMs]] ms.
     */
   override protected def onTry(nextValue: Try[A], transaction: Transaction): Unit = {
-    maybeLastTimeoutHandle.foreach(Timers.clearTimeout)
-    maybeLastTimeoutHandle = Timers.setTimeout(intervalMs.toDouble) {
+    maybeLastTimeoutHandle.foreach(runtime.timers.clearTimeout)
+    maybeLastTimeoutHandle = runtime.timers.setTimeout(intervalMs.toDouble) {
       // println(s"> init trx from DebounceEventStream.onTry($nextValue)")
       Transaction(runtime)(fireTry(nextValue, _))
     }
   }
 
   override protected def onStop(): Unit = {
-    maybeLastTimeoutHandle.foreach(Timers.clearTimeout)
+    maybeLastTimeoutHandle.foreach(runtime.timers.clearTimeout)
     maybeLastTimeoutHandle = undefined
     super.onStop()
   }

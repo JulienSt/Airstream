@@ -1,0 +1,50 @@
+package com.raquo.airstream.platform
+
+import com.raquo.airstream.core.Runtime
+
+import scala.scalajs.js
+
+/** Delayed callbacks of one runtime on Scala.js: the event loop's own timers, with each callback entering its runtime.
+  *
+  * The event loop already owns the scheduling, the ordering and the firing, and nothing here tries to own any of it a
+  * second time. What a runtime adds is the entry: a due callback runs inside `runtime.run`, so the transactions it
+  * creates belong to the runtime that scheduled it rather than to whatever the page happens to be inside.
+  */
+final class RuntimeTimers(runtime: Runtime) {
+
+  /** Run `body` once, no sooner than `delayMillis` from now, inside this runtime.
+    *
+    * @return
+    *   a handle that cancels it
+    */
+  def setTimeout(delayMillis: Double)(body: => Unit): RuntimeTimers.TimerHandle =
+    js.timers.setTimeout(delayMillis)(runtime.run(body))
+
+  /** Cancel a scheduled callback. Accepts a handle that already fired, because a caller cannot always know. */
+  def clearTimeout(handle: RuntimeTimers.TimerHandle): Unit =
+    js.timers.clearTimeout(handle)
+
+  /** Run `body` repeatedly, no sooner than `intervalMillis` between callbacks, each inside this runtime.
+    *
+    * @return
+    *   a handle that cancels every future repetition
+    */
+  def setInterval(intervalMillis: Double)(body: => Unit): RuntimeTimers.IntervalHandle =
+    js.timers.setInterval(intervalMillis)(runtime.run(body))
+
+  /** Cancel a repeating callback. Accepts a handle that was already cancelled. */
+  def clearInterval(handle: RuntimeTimers.IntervalHandle): Unit =
+    js.timers.clearInterval(handle)
+
+  /** The current time in milliseconds, from the same clock the scheduler uses. */
+  def now(): Double = js.Date.now()
+}
+
+object RuntimeTimers {
+
+  /** A scheduled callback that has not fired yet. */
+  type TimerHandle = js.timers.SetTimeoutHandle
+
+  /** A scheduled repeating callback. */
+  type IntervalHandle = js.timers.SetIntervalHandle
+}

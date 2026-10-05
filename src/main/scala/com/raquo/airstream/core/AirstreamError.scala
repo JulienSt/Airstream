@@ -1,6 +1,6 @@
 package com.raquo.airstream.core
 
-import com.raquo.airstream.platform.{DevTools, Timers}
+import com.raquo.airstream.platform.DevTools
 
 sealed abstract class AirstreamError(message: String) extends Throwable(message)
 
@@ -166,7 +166,7 @@ object AirstreamError {
 
   /** The safe way to rethrow an unhandled error */
   val delayedRethrowErrorCallback: Throwable => Unit = { err =>
-    Timers.setTimeout(0)(throw err)
+    Runtime.current.timers.setTimeout(0)(throw err)
   }
 
   /** Register `fn` with the default runtime. See `Runtime.registerUnhandledErrorCallback` for another runtime. */

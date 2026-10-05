@@ -1,7 +1,7 @@
 package com.raquo.airstream.core
 
 import com.raquo.airstream.core.AirstreamError.{CrossRuntimeAccess, ForeignThreadEntry}
-import com.raquo.airstream.platform.{DevTools, DiagnosticLevel, DiagnosticSinks, JsArray, RuntimePermit, ThreadSlot, Timers}
+import com.raquo.airstream.platform.{DevTools, DiagnosticLevel, DiagnosticSinks, JsArray, RuntimePermit, RuntimeTimers, ThreadSlot}
 
 /** A runtime is an identity plus the state that Airstream used to keep in process-wide singletons: the transaction
   * stack, the shared-start batching, the update-id counter, the error routing and the configuration. Two runtimes never
@@ -64,6 +64,11 @@ final class Runtime private (
 
   /** The shared-start batching state of this runtime. Touched only under the permit. */
   private[airstream] val sharedStart: SharedStart = new SharedStart(this)
+
+  /** This runtime's delayed callbacks. On JVM and Native they wait in a queue the host pumps with `timers.runDue`; on
+    * Scala.js the event loop fires them. Either way a due callback runs inside this runtime.
+    */
+  val timers: RuntimeTimers = new RuntimeTimers(this)
 
   /** How many nested transactions this runtime schedules before it reports `TransactionDepthExceeded` instead; -1
     * disables the check. See `Transaction.maxDepth` for the rationale.
@@ -150,7 +155,7 @@ final class Runtime private (
           throw err
         case err: Throwable =>
           DevTools.warn("Error processing an unhandled error callback:")
-          Timers.setTimeout(0)(throw err)
+          timers.setTimeout(0)(throw err)
       }
     }
   }

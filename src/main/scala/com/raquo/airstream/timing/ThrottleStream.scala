@@ -2,7 +2,7 @@ package com.raquo.airstream.timing
 
 import com.raquo.airstream.common.{InternalTryObserver, SingleParentStream}
 import com.raquo.airstream.core.{EventStream, Transaction}
-import com.raquo.airstream.platform.{undefined, Timers, UndefOr}
+import com.raquo.airstream.platform.{undefined, RuntimeTimers, UndefOr}
 
 import scala.util.Try
 
@@ -26,15 +26,15 @@ class ThrottleStream[A](
   private var lastEmittedEventMs: UndefOr[Double] = undefined
 
   /** Note: we unset this after it's done */
-  private var maybeFirstTimeoutHandle: UndefOr[Timers.TimerHandle] = undefined
+  private var maybeFirstTimeoutHandle: UndefOr[RuntimeTimers.TimerHandle] = undefined
 
-  private var maybeLastTimeoutHandle: UndefOr[Timers.TimerHandle] = undefined
+  private var maybeLastTimeoutHandle: UndefOr[RuntimeTimers.TimerHandle] = undefined
 
   override protected val topoRank: Int = 1
 
   override protected def onTry(nextValue: Try[A], transaction: Transaction): Unit = {
 
-    val nowMs = Timers.now()
+    val nowMs = runtime.timers.now()
 
     val remainingMs = lastEmittedEventMs.fold(
       ifEmpty = if (leading) 0 else intervalMs
@@ -48,17 +48,17 @@ class ThrottleStream[A](
       // #Note lastEmittedEventMs is an approximation (compare to the `else` case), I hope that doesn't bite us
       lastEmittedEventMs = nowMs
 
-      maybeFirstTimeoutHandle = Timers.setTimeout(0) {
+      maybeFirstTimeoutHandle = runtime.timers.setTimeout(0) {
         maybeFirstTimeoutHandle = undefined
         // println(s"> init trx from leading ThrottleEventStream.onTry($nextValue)")
         Transaction(runtime)(fireTry(nextValue, _))
       }
 
     } else {
-      maybeLastTimeoutHandle.foreach(Timers.clearTimeout)
+      maybeLastTimeoutHandle.foreach(runtime.timers.clearTimeout)
 
-      maybeLastTimeoutHandle = Timers.setTimeout(remainingMs.toDouble) {
-        lastEmittedEventMs = Timers.now() // @TODO Should this fire now, or inside the transaction below?
+      maybeLastTimeoutHandle = runtime.timers.setTimeout(remainingMs.toDouble) {
+        lastEmittedEventMs = runtime.timers.now() // @TODO Should this fire now, or inside the transaction below?
         // println(s"> init trx from ThrottleEventStream.onTry($nextValue)")
         Transaction(runtime)(fireTry(nextValue, _))
       }
@@ -66,8 +66,8 @@ class ThrottleStream[A](
   }
 
   override protected def onStop(): Unit = {
-    maybeFirstTimeoutHandle.foreach(Timers.clearTimeout)
-    maybeLastTimeoutHandle.foreach(Timers.clearTimeout)
+    maybeFirstTimeoutHandle.foreach(runtime.timers.clearTimeout)
+    maybeLastTimeoutHandle.foreach(runtime.timers.clearTimeout)
     maybeFirstTimeoutHandle = undefined
     maybeLastTimeoutHandle = undefined
     lastEmittedEventMs = undefined

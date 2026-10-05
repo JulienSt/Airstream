@@ -1,7 +1,7 @@
 package com.raquo.airstream.timing
 
 import com.raquo.airstream.core.{Transaction, WritableStream}
-import com.raquo.airstream.platform.{undefined, Timers, UndefOr}
+import com.raquo.airstream.platform.{undefined, RuntimeTimers, UndefOr}
 
 import scala.util.{Failure, Success, Try}
 
@@ -21,7 +21,7 @@ class PeriodicStream[A](
 
   private var currentValue: A = initial
 
-  private var maybeTimeoutHandle: UndefOr[Timers.TimerHandle] = undefined
+  private var maybeTimeoutHandle: UndefOr[RuntimeTimers.TimerHandle] = undefined
 
   // @TODO[API] Not a fan of exposing the ability to write to a stream on the stream itself,
   //  we separate this out on EventBus and Var
@@ -38,7 +38,7 @@ class PeriodicStream[A](
   }
 
   private def clearTimeout(): Unit = {
-    maybeTimeoutHandle.foreach(Timers.clearTimeout)
+    maybeTimeoutHandle.foreach(runtime.timers.clearTimeout)
     maybeTimeoutHandle = undefined
   }
 
@@ -57,7 +57,7 @@ class PeriodicStream[A](
     Try(next(currentValue)) match {
       case Success(Some((nextValue, nextIntervalMs))) =>
         currentValue = nextValue
-        maybeTimeoutHandle = Timers.setTimeout(nextIntervalMs.toDouble) {
+        maybeTimeoutHandle = runtime.timers.setTimeout(nextIntervalMs.toDouble) {
           tick()
         }
       case Success(None) =>
