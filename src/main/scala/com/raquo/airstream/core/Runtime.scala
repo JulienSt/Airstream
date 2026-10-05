@@ -1,7 +1,7 @@
 package com.raquo.airstream.core
 
 import com.raquo.airstream.core.AirstreamError.{CrossRuntimeAccess, ForeignThreadEntry}
-import com.raquo.airstream.platform.{DevTools, JsArray, RuntimePermit, ThreadSlot, Timers}
+import com.raquo.airstream.platform.{DevTools, DiagnosticLevel, DiagnosticSinks, JsArray, RuntimePermit, ThreadSlot, Timers}
 
 /** A runtime is an identity plus the state that Airstream used to keep in process-wide singletons: the transaction
   * stack, the shared-start batching, the update-id counter, the error routing and the configuration. Two runtimes never
@@ -89,6 +89,9 @@ final class Runtime private (
   /** See `AirstreamError.PRE_V18_STRICT_SIGNAL_ERROR_REPORTING`. */
   private[airstream] var strictSignalErrorReporting: Boolean = false
 
+  /** Where this runtime's diagnostics go (level, message, value); see `DevTools.setSink`. */
+  private[airstream] var diagnostics: (DiagnosticLevel, String, Any) => Unit = DiagnosticSinks.default
+
   /** Copy the configuration of `source` into this runtime: the snapshot a new runtime takes of the default runtime. */
   private def configureFrom(source: Runtime): Unit = {
     maxDepth = source.maxDepth
@@ -97,6 +100,7 @@ final class Runtime private (
     trxOnStartFix144 = source.trxOnStartFix144
     immediateDynSubRemovalFix145 = source.immediateDynSubRemovalFix145
     strictSignalErrorReporting = source.strictSignalErrorReporting
+    diagnostics = source.diagnostics
   }
 
   private var lastUpdateId: Int = 0

@@ -1,28 +1,38 @@
 package com.raquo.airstream.platform
 
-import org.scalajs.dom
+import com.raquo.airstream.core.Runtime
 
 import scala.scalajs.js
 
 /** The browser developer tools operations Airstream has always used.
   *
-  * These tiny methods are inlined deliberately: the Scala.js artifact keeps the same direct console calls and debugger
-  * statement it had before the platform split. Native supplies a replaceable sink instead.
+  * The console is the default destination, exactly as before the platform split. The destination is now a setting of a
+  * [[Runtime]] (`setSink`), so a page that runs several runtimes can route each one's diagnostics separately; the
+  * debugger statement stays a direct call because there is nothing to route.
   */
 object DevTools {
 
-  @inline def log(prefix: String, value: Any): Unit =
-    dom.console.log(prefix, value.asInstanceOf[js.Any])
+  /** Send `value` to the current destination, labelled with `prefix`. */
+  def log(prefix: String, value: Any): Unit = Runtime.current.diagnostics(DiagnosticLevel.Log, prefix, value)
 
-  @inline def warn(message: String): Unit =
-    dom.console.warn(message)
+  /** Report something the developer should look at but that did not break anything. */
+  def warn(message: String): Unit = Runtime.current.diagnostics(DiagnosticLevel.Warn, message, ())
 
-  @inline def error(message: String): Unit =
-    dom.console.error(message)
+  /** Report something that did break. */
+  def error(message: String): Unit = Runtime.current.diagnostics(DiagnosticLevel.Error, message, ())
 
-  @inline def consoleErrorCallbackFailed(err: Throwable): Unit = {
-    dom.console.error("Error in AirstreamError.consoleErrorCallback:")
-    dom.console.error(err)
+  /** Report a failure that happened while formatting another error, without bypassing the installed destination. */
+  def consoleErrorCallbackFailed(err: Throwable): Unit =
+    Runtime.current.diagnostics(DiagnosticLevel.Error, "Error in AirstreamError.consoleErrorCallback:", err)
+
+  /** Send the default runtime's diagnostics somewhere other than the console from now on. */
+  def setSink(destination: (DiagnosticLevel, String, Any) => Unit): Unit = {
+    Runtime.default.diagnostics = destination
+  }
+
+  /** Send the default runtime's diagnostics back to the console. */
+  def resetSink(): Unit = {
+    Runtime.default.diagnostics = DiagnosticSinks.console
   }
 
   @inline def breakpoint(): Unit =
