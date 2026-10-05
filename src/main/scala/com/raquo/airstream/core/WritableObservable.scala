@@ -65,10 +65,11 @@ trait WritableObservable[A] extends Observable[A] {
       // An owner only owns subscriptions of its own runtime; rejected before the observer is added.
       Runtime.requireSame(runtime, owner.runtime)
       runtime.sharedStart.shared({
+        val wasStarted = isStarted
         maybeWillStart()
         val subscription = addExternalObserver(observer, owner)
         onAddedExternalObserver(observer)
-        maybeStart()
+        maybeStart(wasStarted)
         subscription
       }, when = !isStarted)
     }
@@ -88,12 +89,13 @@ trait WritableObservable[A] extends Observable[A] {
   override protected[airstream] def addInternalObserver(observer: InternalObserver[A], shouldCallMaybeWillStart: Boolean): Unit = {
     // println(s"$this > aio   shouldCallMaybeWillStart=$shouldCallMaybeWillStart")
     runtime.sharedStart.shared({
-      if (!isStarted && shouldCallMaybeWillStart) {
+      val wasStarted = isStarted
+      if (!wasStarted && shouldCallMaybeWillStart) {
         maybeWillStart()
       }
       // println(s"$this < aio")
       internalObservers.push(observer)
-      maybeStart()
+      maybeStart(wasStarted)
     }, when = !isStarted)
   }
 
@@ -122,9 +124,12 @@ trait WritableObservable[A] extends Observable[A] {
     }
   }
 
-  private def maybeStart(): Unit = {
-    val isStarting = numAllObservers == 1
-    if (isStarting) {
+  /** Start iff this observable was not started before the observer was added and is started now. Deciding by the count
+    * alone ("exactly one observer") restarted an already started observable when the new observer's first delivery
+    * killed another observer and brought the count back to one, registering it with its parent twice.
+    */
+  private def maybeStart(wasStarted: Boolean): Unit = {
+    if (!wasStarted && isStarted) {
       // We've just added first observer
       onStart()
     }
