@@ -26,12 +26,12 @@ trait SignalPlatformOps extends DynamicImportSignalObjectOps { this: Signal.type
 
   /** Starts at `None` and updates once the promise resolves, even if it had already resolved. */
   def fromJsPromise[A](promise: => js.Promise[A]): Signal[Option[A]] = {
-    new JsPromiseSignal(promise)
+    Runtime.current.run(new JsPromiseSignal(promise))
   }
 
   /** Starts at `initial` and updates once the promise resolves, even if it had already resolved. */
   def fromJsPromise[A](promise: => js.Promise[A], initial: => A): Signal[A] = {
-    new JsPromiseSignal(promise).map {
+    fromJsPromise(promise).map {
       case None => initial
       case Some(value) => value
     }

@@ -22,7 +22,7 @@ trait EventStreamPlatformOps extends DynamicImportStreamObjectOps { this: EventS
 
   /** Emit the value `promise` resolves with, even if it had already resolved. */
   def fromJsPromise[A](promise: => js.Promise[A], emitOnce: Boolean = false): EventStream[A] = {
-    new JsPromiseStream[A](promise, emitOnce)
+    Runtime.current.run(new JsPromiseStream[A](promise, emitOnce))
   }
 
   /** `event` will be emitted in the browser's `requestAnimationFrame`.

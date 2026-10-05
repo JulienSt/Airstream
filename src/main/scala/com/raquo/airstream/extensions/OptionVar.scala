@@ -37,14 +37,15 @@ class OptionVar[A](
         duplicateKeys = DuplicateKeysConfig.noWarnings
       ) { signal =>
         val displayNameSuffix = s".splitOption(Some)"
-        val childVar = new LazyDerivedVar[Option[A], A](
+        // Built inside the Var's runtime: a derived Var is graph state, and constructing it is a graph access.
+        val childVar = v.runtime.run(new LazyDerivedVar[Option[A], A](
           parent = v,
           signal = signal,
           updateParent = LazyDerivedVar.standardErrorsF { (_, newInput) =>
             Some(Some(newInput))
           },
           displayNameSuffix = displayNameSuffix
-        )
+        ))
         project(childVar)
       }(
         Splittable.UnsafeOptionSplittable

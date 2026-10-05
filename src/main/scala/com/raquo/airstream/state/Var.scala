@@ -118,7 +118,8 @@ with Named {
     * Note: `in` and `out` functions should be free of side effects,
     * as they may not get called if the Var's value is not observed.
     */
-  def zoom[B](in: A => B)(out: (A, B) => A): Var[B] = {
+  def zoom[B](in: A => B)(out: (A, B) => A): Var[B] = runtime.run {
+    // Built inside this Var's runtime: a derived Var is graph state, and constructing it is a graph access.
     val zoomedSignal = LazyStrictSignal.mapSignal(
       signal, in, displayName, displayNameSuffix = ".zoom.signal"
     )
@@ -133,7 +134,7 @@ with Named {
   }
 
   /** Create a strictly evaluated [[DerivedVar]]. See also: [[zoom]]. */
-  def zoomStrict[B](in: A => B)(out: (A, B) => A)(implicit owner: Owner): Var[B] = {
+  def zoomStrict[B](in: A => B)(out: (A, B) => A)(implicit owner: Owner): Var[B] = runtime.run {
     new DerivedVar[A, B](this, in, out, owner, displayNameSuffix = ".zoomStrict")
   }
 
@@ -162,7 +163,7 @@ with Named {
     * both the parent and the derived var will be set into error state with
     * the thrown error.
     */
-  def bimap[B](getThis: A => B)(getParent: B => A): Var[B] = {
+  def bimap[B](getThis: A => B)(getParent: B => A): Var[B] = runtime.run {
     val zoomedSignal = LazyStrictSignal.mapSignal(
       signal, getThis, displayName, displayNameSuffix = ".bimap.signal"
     )
@@ -180,7 +181,7 @@ with Named {
     *
     * See other distinct* operators in [[DistinctOps]].
     */
-  override def distinctTry(isSame: (Try[A], Try[A]) => Boolean): Var[A] = {
+  override def distinctTry(isSame: (Try[A], Try[A]) => Boolean): Var[A] = runtime.run {
     val distinctSignal = LazyStrictSignal.distinctSignal(
       parentSignal = signal,
       isSame = isSame,
@@ -262,9 +263,12 @@ object Var {
 
   def apply[A](initial: A): Var[A] = fromTry(Success(initial))
 
-  @inline def fromTry[A](initial: Try[A]): Var[A] = new SourceVar[A](initial)
+  /** A new Var in the runtime the calling thread is inside, or the default runtime; constructed inside that runtime's entry,
+    * because construction is a graph access.
+    */
+  def fromTry[A](initial: Try[A]): Var[A] = Runtime.current.run(new SourceVar[A](initial))
 
-  @inline def fromEither[A](initial: Either[Throwable, A]): Var[A] = new SourceVar[A](initial.toTry)
+  def fromEither[A](initial: Either[Throwable, A]): Var[A] = fromTry(initial.toTry)
 
   // Unfortunately we need the following tuple types to be concrete classes to satisfy Scala 3
 

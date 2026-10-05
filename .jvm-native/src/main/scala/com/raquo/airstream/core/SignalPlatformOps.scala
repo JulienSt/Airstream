@@ -16,12 +16,12 @@ trait SignalPlatformOps {
 
   /** Starts at `None` and updates once the future completes, even if it had already completed by then. */
   def fromFuture[A](future: => Future[A])(implicit ec: ExecutionContext): Signal[Option[A]] = {
-    new FutureSignal(future)
+    Runtime.current.run(new FutureSignal(future))
   }
 
   /** Starts at `initial` and updates once the future completes, even if it had already completed by then. */
   def fromFuture[A](future: => Future[A], initial: => A)(implicit ec: ExecutionContext): Signal[A] = {
-    new FutureSignal(future).map {
+    fromFuture(future).map {
       case None => initial
       case Some(value) => value
     }

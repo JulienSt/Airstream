@@ -34,12 +34,21 @@ class CustomStreamSource[A](
   /** Inside a shared start, collect the emission for [[resolveStartCallbacks]];
     * otherwise fire it in a new transaction right away, as usual.
     */
-  private def scheduleTransaction(fire: Transaction => Unit): Unit = runtime.run {
-    if (runtime.sharedStart.isInSharedStart && runtime.trxOnStartFix144) {
-      onStartCallbacks.push(fire)
-    } else {
+  private def scheduleTransaction(fire: Transaction => Unit): Unit = {
+    if (!collectDuringSharedStart(fire)) {
       Transaction(runtime)(fire)
     }
+  }
+
+  /** Collect `fire` for the shared start's resolution when one is running; false when it is not and `fire` must run in a
+    * transaction of its own. The decision reads the runtime's shared-start state, so it enters the runtime.
+    */
+  private def collectDuringSharedStart(fire: Transaction => Unit): Boolean = runtime.run {
+    val collecting = runtime.sharedStart.isInSharedStart && runtime.trxOnStartFix144
+    if (collecting) {
+      onStartCallbacks.push(fire)
+    }
+    collecting
   }
 
   /** Schedule the events emitted synchronously during `onStart`:

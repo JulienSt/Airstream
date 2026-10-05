@@ -16,6 +16,6 @@ trait EventStreamPlatformOps {
 
   /** Emit the value `future` completes with, even if it had already completed by the time anyone subscribed. */
   def fromFuture[A](future: => Future[A], emitOnce: Boolean = false)(implicit ec: ExecutionContext): EventStream[A] = {
-    new FutureStream[A](future, emitOnce)
+    Runtime.current.run(new FutureStream[A](future, emitOnce))
   }
 }

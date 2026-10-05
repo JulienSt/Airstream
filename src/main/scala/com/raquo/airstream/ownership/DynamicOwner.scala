@@ -35,9 +35,11 @@ extends Named {
   /** The runtime this owner belongs to, captured at construction; every owner it creates is created inside it. */
   private[airstream] val runtime: Runtime = Runtime.current
 
-  @inline def maybeCurrentOwner: Option[Owner] = _maybeCurrentOwner
+  /** The owner of the current activation, if any; a read of this owner's state, so it enters the runtime. */
+  def maybeCurrentOwner: Option[Owner] = runtime.run(_maybeCurrentOwner)
 
-  @inline def isActive: Boolean = _maybeCurrentOwner.isDefined
+  /** True while activated; a read of this owner's state, so it enters the runtime. */
+  def isActive: Boolean = runtime.run(_maybeCurrentOwner.isDefined)
 
   @inline def hasSubscriptions: Boolean = numSubscriptions != 0
 

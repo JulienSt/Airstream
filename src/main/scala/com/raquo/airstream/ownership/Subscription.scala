@@ -24,7 +24,8 @@ class Subscription(
 
   owner.runtime.run(owner.own(this))
 
-  def isKilled: Boolean = _isKilled
+  /** True once this subscription was killed by its owner or externally; a read of its state, so it enters the runtime. */
+  def isKilled: Boolean = owner.runtime.run(_isKilled)
 
   def kill(): Unit = owner.runtime.run {
     safeCleanup()

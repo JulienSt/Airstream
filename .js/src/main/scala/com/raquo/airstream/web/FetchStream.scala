@@ -196,7 +196,8 @@ class FetchStream private[web] (
       }
       val responsePromise = dom.Fetch.fetch(url, requestInit)
       // #TODO[Integrity] Is it ok to emit asynchronously here? Maybe we should save `responsePromise` and emit it `onStart`?
-      js.timers.setTimeout(0) {
+      // Scheduled through the runtime's timers, so the deferred emission enters the runtime before it touches the graph.
+      runtime.timers.setTimeout(0) {
         Transaction(runtime)(fireValue(responsePromise, _))
       }
       hasEmittedEvents = true
