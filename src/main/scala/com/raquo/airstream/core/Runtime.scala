@@ -160,6 +160,24 @@ final class Runtime private (
     }
   }
 
+  /** Check that the calling thread may access this runtime's graph right now, without entering: the check a derived
+    * observable makes when it is constructed, since constructing it reads its parents' state.
+    *
+    * @throws CrossRuntimeAccess when the calling thread is inside another runtime's turn
+    * @throws ForeignThreadEntry when the permit would refuse the calling thread
+    */
+  private[airstream] def requireAccess(): Unit = {
+    if (!permit.isHeldByCurrentThread) {
+      val active = Runtime.context.get
+      if (active ne null) {
+        throw CrossRuntimeAccess(active = active, target = this)
+      }
+      if (!permit.mayAcquire) {
+        throw ForeignThreadEntry(this)
+      }
+    }
+  }
+
   /** True while some thread is inside `run` on this runtime. */
   def isEntered: Boolean = permit.isHeld
 
@@ -210,8 +228,15 @@ object Runtime {
     copy
   }
 
+  /** The runtime a derived observable with this one parent belongs to, checked for access by the constructing thread. */
+  private[airstream] def inheritedFrom(parent: Observable[?]): Runtime = {
+    val inherited = parent.runtime
+    inherited.requireAccess()
+    inherited
+  }
+
   /** The one runtime these parents share, for a derived observable over all of them; the current runtime when there
-    * are no parents.
+    * are no parents. Checked for access by the constructing thread.
     *
     * @throws CrossRuntimeEdge when the parents belong to different runtimes; checked before the observable connects
     */
@@ -221,14 +246,16 @@ object Runtime {
     } else {
       val shared = parents(0).runtime
       parents.forEach(parent => requireSame(shared, parent.runtime))
+      shared.requireAccess()
       shared
     }
   }
 
-  /** The one runtime `first` and `others` share, for a sampling observable. */
+  /** The one runtime `first` and `others` share, for a sampling observable. Checked for access by the constructing thread. */
   private[airstream] def sharedBy(first: Observable[?], others: JsArray[? <: Observable[?]]): Runtime = {
     val shared = first.runtime
     others.forEach(other => requireSame(shared, other.runtime))
+    shared.requireAccess()
     shared
   }
 

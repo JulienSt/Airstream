@@ -36,9 +36,12 @@ with Named {
 
   // --
 
+  /** An observer that writes into this Var. As every observer, it reports a failure of the write (such as a rejected
+    * runtime entry) as an unhandled error instead of throwing; call [[setTry]] directly to get the exception.
+    */
   val writer: Observer[A] = Observer.fromTry { nextTry =>
     // println(s"> init trx from Var.writer(${nextTry})")
-    Transaction(runtime)(setCurrentValue(nextTry, _))
+    setTry(nextTry)
   }
 
   /** Write values into a Var of Option[V] without manually wrapping in Some() */
@@ -198,7 +201,15 @@ with Named {
     )
   }
 
-  def setTry(tryValue: Try[A]): Unit = writer.onTry(tryValue)
+  /** Write `tryValue` in a new transaction of this Var's runtime.
+    *
+    * @throws AirstreamError.ForeignThreadEntry when called from a thread the runtime does not admit
+    * @throws AirstreamError.CrossRuntimeAccess when called from inside another runtime's turn
+    */
+  def setTry(tryValue: Try[A]): Unit = {
+    // println(s"> init trx from Var.setTry(${tryValue})")
+    Transaction(runtime)(setCurrentValue(tryValue, _))
+  }
 
   final def set(value: A): Unit = setTry(Success(value))
 

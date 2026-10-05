@@ -8,7 +8,7 @@ trait SingleParentStream[I, O] extends WritableStream[O] with InternalObserver[I
   protected val parent: Observable[I]
 
   /** A synchronous edge stays inside one runtime, so this stream lives where its parent lives. */
-  override protected[airstream] val runtime: Runtime = parent.runtime
+  override protected[airstream] val runtime: Runtime = Runtime.inheritedFrom(parent)
 
   override protected def onWillStart(): Unit = {
     // println(s"${this} > onWillStart")

@@ -15,7 +15,7 @@ with InternalTryObserver[I] {
   protected val parent: Observable[I]
 
   /** A synchronous edge stays inside one runtime, so this signal lives where its parent lives. */
-  override protected[airstream] val runtime: Runtime = parent.runtime
+  override protected[airstream] val runtime: Runtime = Runtime.inheritedFrom(parent)
 
   // This needs to be lazy, otherwise it risks evaluating with an uninitialized `parent`
   // if another trait extends this trait (overriding `val parent` in subclass param seems to be fine)
