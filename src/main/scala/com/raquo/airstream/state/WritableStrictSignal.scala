@@ -11,5 +11,6 @@ trait WritableStrictSignal[A]
 extends StrictSignal[A]
 with WritableSignal[A] {
 
-  override def tryNow(): Try[A] = super.tryNow()
+  /** A read may evaluate and cache a lazy value, so it is a runtime operation and enters the runtime like a write. */
+  override def tryNow(): Try[A] = runtime.run(super.tryNow())
 }

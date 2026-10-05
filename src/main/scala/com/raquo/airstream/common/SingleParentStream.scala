@@ -1,11 +1,14 @@
 package com.raquo.airstream.common
 
-import com.raquo.airstream.core.{InternalObserver, Observable, Protected, WritableStream}
+import com.raquo.airstream.core.{InternalObserver, Observable, Protected, Runtime, WritableStream}
 
 /** A simple stream that only has one parent. */
 trait SingleParentStream[I, O] extends WritableStream[O] with InternalObserver[I] {
 
   protected val parent: Observable[I]
+
+  /** A synchronous edge stays inside one runtime, so this stream lives where its parent lives. */
+  override protected[airstream] val runtime: Runtime = parent.runtime
 
   override protected def onWillStart(): Unit = {
     // println(s"${this} > onWillStart")

@@ -22,11 +22,11 @@ class Subscription(
     */
   final private var _isKilled = false
 
-  owner.own(this)
+  owner.runtime.run(owner.own(this))
 
   def isKilled: Boolean = _isKilled
 
-  def kill(): Unit = {
+  def kill(): Unit = owner.runtime.run {
     safeCleanup()
     owner.onKilledExternally(this)
   }

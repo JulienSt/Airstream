@@ -1,6 +1,6 @@
 package com.raquo.airstream.ownership
 
-import com.raquo.airstream.core.{EventStream, Named, Observable, Observer, Sink, Transaction}
+import com.raquo.airstream.core.{EventStream, Named, Observable, Observer, Sink}
 import com.raquo.airstream.eventbus.WriteBus
 
 // @TODO[API] I could make the constructor public but it's less confusing if you use the companion object methods
@@ -35,18 +35,18 @@ class DynamicSubscription private (
   /** Note: this var is only guaranteed accurate inside onActivate. See comments below. */
   private var isPendingDeactivation = false
 
-  dynamicOwner.addSubscription(this, prepend)
+  dynamicOwner.runtime.run(dynamicOwner.addSubscription(this, prepend))
 
   @inline def isOwnerActive: Boolean = dynamicOwner.isActive
 
   @inline def isOwnedBy(owner: DynamicOwner): Boolean = owner == dynamicOwner
 
   /** Permanently kill this subscription, deactivating if it's currently active, and removing it from the dynamic owner */
-  def kill(): Unit = dynamicOwner.removeSubscription(this)
+  def kill(): Unit = dynamicOwner.runtime.run(dynamicOwner.removeSubscription(this))
 
   private[ownership] def onActivate(owner: Owner): Unit = {
     // println(s"      - activating $this")
-    Transaction.onStart.shared {
+    dynamicOwner.runtime.sharedStart.shared {
       isPendingDeactivation = false // ensure this, in case we've called `onDeactivate` while sub was deactivated.
       maybeCurrentSubscription = activate(owner)
       if (isPendingDeactivation) {
@@ -59,7 +59,7 @@ class DynamicSubscription private (
 
   private[ownership] def onDeactivate(): Unit = {
     // println(s"      - deactivating $this")
-    Transaction.onStart.shared {
+    dynamicOwner.runtime.sharedStart.shared {
       maybeCurrentSubscription.fold {
         // If current Subscription is empty, we must have triggered deactivation while activating it.
         //  - Or maybe we called onDeactivate on already-deactivated subscription, but no harm in that case.

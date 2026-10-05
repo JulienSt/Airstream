@@ -1,7 +1,7 @@
 package com.raquo.airstream.combine
 
 import com.raquo.airstream.common.{InternalParentObserver, MultiParentStream, ObservationExt}
-import com.raquo.airstream.core.{EventStream, Observable, Protected, SyncObservable, Transaction, WritableStream}
+import com.raquo.airstream.core.{EventStream, Observable, Protected, Runtime, SyncObservable, Transaction, WritableStream}
 import com.raquo.airstream.platform.{undefined, JsArray, UndefOr}
 import com.raquo.airstream.util.{FeatureFlags, JsPriorityQueue}
 
@@ -28,6 +28,8 @@ class MergeStream[A](
   private val numParents: Int = parents.length
 
   override protected val topoRank: Int = Protected.maxTopoRank(parents) + 1
+
+  override protected[airstream] val runtime: Runtime = Runtime.of(parents)
 
   private var lastFiredInTrx: UndefOr[Transaction] = undefined
 
@@ -57,8 +59,8 @@ class MergeStream[A](
       if (lastFiredInTrx.contains(transaction)) {
         // println("- syncFire in new trx")
         nextValue.fold(
-          nextError => Transaction(fireError(nextError, _)),
-          nextEvent => Transaction(fireValue(nextEvent, _))
+          nextError => Transaction(runtime)(fireError(nextError, _)),
+          nextEvent => Transaction(runtime)(fireValue(nextEvent, _))
         )
       } else {
         lastFiredInTrx = transaction

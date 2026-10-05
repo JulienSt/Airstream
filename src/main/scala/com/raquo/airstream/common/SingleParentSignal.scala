@@ -1,6 +1,6 @@
 package com.raquo.airstream.common
 
-import com.raquo.airstream.core.{Observable, Protected, Signal, Transaction, WritableSignal}
+import com.raquo.airstream.core.{Observable, Protected, Runtime, Signal, Transaction, WritableSignal}
 import com.raquo.airstream.distinct.DistinctSignal
 import com.raquo.airstream.misc.SignalFromStream
 import com.raquo.airstream.split.SplitChildSignal
@@ -13,6 +13,9 @@ extends WritableSignal[O]
 with InternalTryObserver[I] {
 
   protected val parent: Observable[I]
+
+  /** A synchronous edge stays inside one runtime, so this signal lives where its parent lives. */
+  override protected[airstream] val runtime: Runtime = parent.runtime
 
   // This needs to be lazy, otherwise it risks evaluating with an uninitialized `parent`
   // if another trait extends this trait (overriding `val parent` in subclass param seems to be fine)

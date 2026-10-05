@@ -2,6 +2,10 @@ package com.raquo.airstream.core
 
 import com.raquo.airstream.UnitSpec
 import com.raquo.airstream.core.AirstreamError.CrossRuntimeAccess
+import com.raquo.airstream.ownership.ManualOwner
+import com.raquo.airstream.state.Var
+
+import scala.collection.mutable
 
 /** The entry protocol of a runtime on one thread: `run` installs the runtime as the construction context, reentrant runs
   * nest, every exit restores the previous context, and a synchronous entry into another runtime from inside a turn is
@@ -66,5 +70,42 @@ class RuntimeSpec extends UnitSpec {
     val runtime = Runtime.confined()
     (runtime eq Runtime.default) shouldBe false
     runtime.setDisplayName("worker").toString shouldBe "worker"
+  }
+
+  it("writes a Var in the runtime it was created in, even when the writer is outside every run") {
+    val runtime = Runtime.confined()
+    val owner = runtime.run(new ManualOwner)
+    val v = runtime.run(Var(0))
+    val seen = mutable.Buffer[Runtime]()
+    runtime.run(v.signal.foreach(_ => seen += Runtime.current)(owner))
+    v.set(1)
+    seen.toList shouldBe List(runtime, runtime)
+    runtime.isEntered shouldBe false
+    Runtime.current shouldBe Runtime.default
+  }
+
+  it("gives a derived observable the runtime of its parent, not the runtime of the thread that derived it") {
+    val runtime = Runtime.confined()
+    val owner = runtime.run(new ManualOwner)
+    val v = runtime.run(Var(0))
+    val derived = v.signal.map(_ + 1)
+    val seen = mutable.Buffer[(Int, Runtime)]()
+    derived.foreach(value => seen += ((value, Runtime.current)))(owner)
+    v.set(1)
+    seen.toList shouldBe List((1, runtime), (2, runtime))
+  }
+
+  it("runs a subscription's cleanup inside the owner's runtime when it is killed from outside every run") {
+    val runtime = Runtime.confined()
+    val owner = runtime.run(new ManualOwner)
+    val v = runtime.run(Var(0))
+    val subscription = runtime.run(v.signal.foreach(_ => ())(owner))
+    val cleanupRuntimes = mutable.Buffer[Runtime]()
+    val stream = runtime.run(EventStream.fromCustomSource[Int](start = (_, _, _, _) => (), stop = _ => cleanupRuntimes += Runtime.current))
+    val streamSubscription = stream.addObserver(Observer.empty)(owner)
+    subscription.kill()
+    streamSubscription.kill()
+    cleanupRuntimes.toList shouldBe List(runtime)
+    runtime.isEntered shouldBe false
   }
 }

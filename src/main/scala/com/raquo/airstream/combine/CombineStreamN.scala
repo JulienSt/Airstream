@@ -1,7 +1,7 @@
 package com.raquo.airstream.combine
 
 import com.raquo.airstream.common.{InternalParentObserver, MultiParentStream}
-import com.raquo.airstream.core.{EventStream, Observable, Protected}
+import com.raquo.airstream.core.{EventStream, Observable, Protected, Runtime}
 import com.raquo.airstream.platform.{undefined, UndefOr}
 import com.raquo.airstream.platform.JsArray
 
@@ -24,6 +24,8 @@ class CombineStreamN[A, Out](
   }
 
   override protected val topoRank: Int = Protected.maxTopoRank(parents) + 1
+
+  override protected[airstream] val runtime: Runtime = Runtime.of(parents)
 
   private val maybeLastParentValues: JsArray[UndefOr[Try[A]]] = parents.map(_ => undefined)
 

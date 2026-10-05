@@ -1,6 +1,6 @@
 package com.raquo.airstream.state
 
-import com.raquo.airstream.core.{AirstreamError, Named, Observer, Signal, Sink, Transaction}
+import com.raquo.airstream.core.{AirstreamError, Named, Observer, Runtime, Signal, Sink, Transaction}
 import com.raquo.airstream.core.AirstreamError.VarError
 import com.raquo.airstream.core.Source.SignalSource
 import com.raquo.airstream.distinct.DistinctOps
@@ -31,11 +31,14 @@ with Named {
 
   val signal: StrictSignal[A]
 
+  /** The runtime this Var belongs to: its signal's, so a Var and every derived Var over it agree. */
+  private[airstream] def runtime: Runtime = signal.runtime
+
   // --
 
   val writer: Observer[A] = Observer.fromTry { nextTry =>
     // println(s"> init trx from Var.writer(${nextTry})")
-    Transaction(setCurrentValue(nextTry, _))
+    Transaction(runtime)(setCurrentValue(nextTry, _))
   }
 
   /** Write values into a Var of Option[V] without manually wrapping in Some() */
@@ -54,7 +57,7 @@ with Named {
     * @param mod (currValue, nextInput) => nextValue
     */
   def updater[B](mod: (A, B) => A): Observer[B] = Observer.fromTry { nextInputTry =>
-    Transaction { trx =>
+    Transaction(runtime) { trx =>
       nextInputTry match {
         case Success(nextInput) =>
           tryNow() match {
@@ -76,7 +79,7 @@ with Named {
     *            Note: Must not throw!
     */
   def tryUpdater[B](mod: (Try[A], B) => Try[A]): Observer[B] = Observer.fromTry { nextInputTry =>
-    Transaction { trx =>
+    Transaction(runtime) { trx =>
       nextInputTry match {
         case Success(nextInput) =>
           val nextValue = mod(getCurrentValue, nextInput)
@@ -206,7 +209,7 @@ with Named {
     * @param mod Note: guarded against exceptions
     */
   def update(mod: A => A): Unit = {
-    Transaction { trx =>
+    Transaction(runtime) { trx =>
       tryNow() match {
         case Success(currentValue) =>
           val nextValue = Try(mod(currentValue)) // this does catch exceptions in mod(currentValue)
@@ -222,7 +225,7 @@ with Named {
   /** @param mod Note: must not throw */
   def tryUpdate(mod: Try[A] => Try[A]): Unit = {
     // println(s"> init trx from Var.tryUpdate")
-    Transaction { trx =>
+    Transaction(runtime) { trx =>
       val nextValue = mod(getCurrentValue)
       setCurrentValue(nextValue, trx)
     }
@@ -281,7 +284,7 @@ object Var {
     */
   def setTry(values: VarTryTuple[?]*): Unit = {
     // println(s"> init trx from Var.set/setTry")
-    Transaction { trx =>
+    Transaction(runtimeOf(values)(_.tuple._1)) { trx =>
       if (hasDuplicateUnderlyingVars(values)(_.tuple._1)) {
         throw VarError("Unable to Var.{set,setTry}: the provided list of vars has duplicates. You can't make an observable emit more than one event per transaction.", cause = None)
       }
@@ -306,7 +309,7 @@ object Var {
     */
   def update(mods: VarModTuple[?]*): Unit = {
     // println(s"> init trx from Var.update")
-    Transaction { trx =>
+    Transaction(runtimeOf(mods)(_.tuple._1)) { trx =>
       if (hasDuplicateUnderlyingVars(mods)(_.tuple._1)) {
         throw VarError("Unable to Var.update: the provided list of vars has duplicates. You can't make an observable emit more than one event per transaction.", cause = None)
       }
@@ -332,7 +335,7 @@ object Var {
     */
   def tryUpdate(mods: VarTryModTuple[?]*): Unit = {
     // println(s"> init trx from Var.tryUpdate")
-    Transaction { trx =>
+    Transaction(runtimeOf(mods)(_.tuple._1)) { trx =>
       if (hasDuplicateUnderlyingVars(mods)(_.tuple._1)) {
         throw VarError("Unable to Var.tryUpdate: the provided list of vars has duplicates. You can't make an observable emit more than one event per transaction.", cause = None)
       }
@@ -360,6 +363,11 @@ object Var {
 
   @inline private def hasDuplicateUnderlyingVars[A](items: Seq[A])(v: A => Var[?]): Boolean = {
     hasDuplicateKeys(items)(item => v(item).underlyingVar)
+  }
+
+  /** The runtime a batch of Vars is written in. */
+  private def runtimeOf[A](items: Seq[A])(v: A => Var[?]): Runtime = {
+    Runtime.of(items.map(item => v(item).runtime))
   }
 
   /** Provides methods on Var: split, splitMutate */

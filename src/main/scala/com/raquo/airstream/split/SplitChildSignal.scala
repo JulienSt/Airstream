@@ -47,7 +47,7 @@ extends KeyedStrictSignal[K, A]
 with WritableStrictSignal[A]
 with SingleParentSignal[M[A], A] {
 
-  private var maybeInitialTransaction: UndefOr[Transaction] = Transaction.currentTransaction()
+  private var maybeInitialTransaction: UndefOr[Transaction] = runtime.transactions.peekStack()
 
   private var droppedDuplicateEvent: Boolean = false
 
@@ -114,7 +114,7 @@ with SingleParentSignal[M[A], A] {
       // #Note I do think we want to compare both `None` and `Some` cases of maybeTransaction.
       //  I'm not sure if None is possible, but if it is, this is probably the right thing to do.
       //  I think None might be possible when evaluating this signal's initial value when starting it
-      if (!droppedDuplicateEvent && maybeInitialTransaction == Transaction.currentTransaction()) {
+      if (!droppedDuplicateEvent && maybeInitialTransaction == runtime.transactions.peekStack()) {
         // dom.console.log(s">>>>> ${this} DROPPED EVENT ${freshMemoizedInput}, TRX IS ${maybeInitialTransaction}")
         maybeInitialTransaction = undefined
         droppedDuplicateEvent = true

@@ -63,6 +63,11 @@ object Protected {
 
   def lastUpdateId(signal: Signal[?])(implicit @unused ev: Protected): Int = signal.lastUpdateId
 
+  /** The runtime `observable` belongs to; a custom observable combining several parents reads this to check them. */
+  @inline def runtime[O[+_] <: Observable[?]](observable: BaseObservable[O, ?]): Runtime = {
+    BaseObservable.runtime(observable)
+  }
+
   @inline def tryNow[A](signal: Signal[A])(implicit @unused ev: Protected): Try[A] = signal.tryNow()
 
   @inline def now[A](signal: Signal[A])(implicit @unused ev: Protected): A = signal.now()

@@ -20,7 +20,7 @@ class DelayStream[A](
     timerHandle = Timers.setTimeout(delayMs.toDouble) {
       // println(s"> init trx from DelayEventStream.onNext($nextValue)")
       timerHandle.foreach(handle => timerHandles.splice(timerHandles.indexOf(handle), deleteCount = 1))
-      Transaction(fireValue(nextValue, _))
+      Transaction(runtime)(fireValue(nextValue, _))
       ()
     }
     timerHandles.push(timerHandle.get)
@@ -30,7 +30,7 @@ class DelayStream[A](
     var timerHandle: UndefOr[Timers.TimerHandle] = undefined
     timerHandle = Timers.setTimeout(delayMs.toDouble) {
       timerHandle.foreach(handle => timerHandles.splice(timerHandles.indexOf(handle), deleteCount = 1))
-      Transaction(fireError(nextError, _))
+      Transaction(runtime)(fireError(nextError, _))
       ()
     }
     timerHandles.push(timerHandle.get)

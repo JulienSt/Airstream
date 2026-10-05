@@ -20,8 +20,8 @@ class ConcurrentStream[A](
   private val accumulatedStreams: JsArray[EventStream[A]] = JsArray()
 
   private val internalEventObserver: InternalObserver[A] = InternalObserver[A](
-    onNext = (nextEvent, _) => Transaction(fireValue(nextEvent, _)),
-    onError = (nextError, _) => Transaction(fireError(nextError, _))
+    onNext = (nextEvent, _) => Transaction(runtime)(fireValue(nextEvent, _)),
+    onError = (nextError, _) => Transaction(runtime)(fireError(nextError, _))
   )
 
   override protected val topoRank: Int = 1
@@ -57,7 +57,7 @@ class ConcurrentStream[A](
           case Failure(err) =>
             // @TODO[API] Not 100% sure that we should emit this error, but since
             //  we expect to use signal's current value, I think this is right.
-            Transaction(fireError(err, _)) // #Note[onStart,trx,loop]
+            Transaction(runtime)(fireError(err, _)) // #Note[onStart,trx,loop]
           case _ => ()
         }
       case _ => ()

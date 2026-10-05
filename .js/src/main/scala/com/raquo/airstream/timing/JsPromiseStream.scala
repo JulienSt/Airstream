@@ -39,7 +39,7 @@ class JsPromiseStream[A](
           (nextValue: A) => {
             isPending = false
             // println(s"> init trx from FutureEventStream.init($nextValue)")
-            Transaction(fireValue(nextValue, _))
+            Transaction(runtime)(fireValue(nextValue, _))
           }
         ): js.Function1[A, Unit],
         (
@@ -50,7 +50,7 @@ class JsPromiseStream[A](
               case _ => js.JavaScriptException(rawException)
             }
             // println(s"> init trx from JsPromiseEventStream.init($nextError)")
-            Transaction(fireError(nextError, _))
+            Transaction(runtime)(fireError(nextError, _))
           }
         ): js.Function1[Any, Unit]
       )

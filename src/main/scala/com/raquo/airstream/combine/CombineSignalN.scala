@@ -1,7 +1,7 @@
 package com.raquo.airstream.combine
 
 import com.raquo.airstream.common.{InternalParentObserver, MultiParentSignal}
-import com.raquo.airstream.core.{Protected, Signal}
+import com.raquo.airstream.core.{Protected, Runtime, Signal}
 import com.raquo.airstream.platform.JsArray
 
 import scala.util.Try
@@ -18,6 +18,8 @@ class CombineSignalN[A, Out](
   // @TODO[API] Maybe this should throw if parents.isEmpty
 
   override protected val topoRank: Int = Protected.maxTopoRank(0, parents) + 1
+
+  override protected[airstream] val runtime: Runtime = Runtime.of(parents)
 
   override protected val parentObservers: JsArray[InternalParentObserver[?]] = {
     parents.mapWithIndex { (parent, ix) =>

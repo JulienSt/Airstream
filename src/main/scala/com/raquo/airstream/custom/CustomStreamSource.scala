@@ -37,14 +37,14 @@ class CustomStreamSource[A](
   /** Inside a shared start, collect the emission for [[resolveStartCallbacks]];
     * otherwise fire it in a new transaction right away, as usual.
     */
-  private def scheduleTransaction(fire: Transaction => Unit): Unit = {
+  private def scheduleTransaction(fire: Transaction => Unit): Unit = runtime.run {
     if (
-      Transaction.onStart.isInSharedStart &&
+      runtime.sharedStart.isInSharedStart &&
       (FeatureFlags.V18_TRX_ONSTART_FIX_144: @nowarn("msg=deprecated"))
     ) {
       onStartCallbacks.push(fire)
     } else {
-      new Transaction(fire)
+      Transaction(runtime)(fire)
     }
   }
 
@@ -68,7 +68,7 @@ class CustomStreamSource[A](
     if (numEvents == 1) {
       val fire = onStartCallbacks(0)
       onStartCallbacks.length = 0
-      Transaction.onStart.add { trx =>
+      runtime.sharedStart.add { trx =>
         if (isStarted) {
           fire(trx)
         }
@@ -77,7 +77,7 @@ class CustomStreamSource[A](
       var i = 0
       while (i < numEvents) {
         val fire = onStartCallbacks(i)
-        new Transaction(fire)
+        Transaction(runtime)(fire)
         i += 1
       }
       onStartCallbacks.length = 0

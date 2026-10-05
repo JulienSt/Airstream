@@ -36,6 +36,11 @@ trait WritableObservable[A] extends Observable[A] {
   // don't know which one of them will be called, but they need to be
   // implemented to produce similar results
 
+  /** A source belongs to the runtime the constructing thread is inside; derived observables override this with their
+    * parent's runtime (see [[com.raquo.airstream.common.SingleParentStream]] and friends).
+    */
+  override protected[airstream] val runtime: Runtime = Runtime.current
+
   protected def fireValue(nextValue: A, transaction: Transaction): Unit
 
   protected def fireError(nextError: Throwable, transaction: Transaction): Unit
@@ -56,14 +61,15 @@ trait WritableObservable[A] extends Observable[A] {
   protected var willStartDone: Boolean = false
 
   override def addObserver(observer: Observer[A])(implicit owner: Owner): Subscription = {
-    // dom.console.log(s"// ${this} addObserver ${observer}")
-    Transaction.onStart.shared({
-      maybeWillStart()
-      val subscription = addExternalObserver(observer, owner)
-      onAddedExternalObserver(observer)
-      maybeStart()
-      subscription
-    }, when = !isStarted)
+    runtime.run {
+      runtime.sharedStart.shared({
+        maybeWillStart()
+        val subscription = addExternalObserver(observer, owner)
+        onAddedExternalObserver(observer)
+        maybeStart()
+        subscription
+      }, when = !isStarted)
+    }
   }
 
   /** Subscribe an external observer to this observable */
@@ -79,7 +85,7 @@ trait WritableObservable[A] extends Observable[A] {
     */
   override protected[airstream] def addInternalObserver(observer: InternalObserver[A], shouldCallMaybeWillStart: Boolean): Unit = {
     // println(s"$this > aio   shouldCallMaybeWillStart=$shouldCallMaybeWillStart")
-    Transaction.onStart.shared({
+    runtime.sharedStart.shared({
       if (!isStarted && shouldCallMaybeWillStart) {
         maybeWillStart()
       }

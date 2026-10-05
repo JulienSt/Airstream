@@ -51,7 +51,7 @@ class ThrottleStream[A](
       maybeFirstTimeoutHandle = Timers.setTimeout(0) {
         maybeFirstTimeoutHandle = undefined
         // println(s"> init trx from leading ThrottleEventStream.onTry($nextValue)")
-        Transaction(fireTry(nextValue, _))
+        Transaction(runtime)(fireTry(nextValue, _))
       }
 
     } else {
@@ -60,7 +60,7 @@ class ThrottleStream[A](
       maybeLastTimeoutHandle = Timers.setTimeout(remainingMs.toDouble) {
         lastEmittedEventMs = Timers.now() // @TODO Should this fire now, or inside the transaction below?
         // println(s"> init trx from ThrottleEventStream.onTry($nextValue)")
-        Transaction(fireTry(nextValue, _))
+        Transaction(runtime)(fireTry(nextValue, _))
       }
     }
   }

@@ -1,7 +1,7 @@
 package com.raquo.airstream.core
 
 import com.raquo.airstream.core.AirstreamError.{CrossRuntimeAccess, ForeignThreadEntry}
-import com.raquo.airstream.platform.{RuntimePermit, ThreadSlot}
+import com.raquo.airstream.platform.{JsArray, RuntimePermit, ThreadSlot}
 
 /** A runtime is an identity plus the state that Airstream used to keep in process-wide singletons: the transaction
   * stack, the shared-start batching, the update-id counter, the error routing and the configuration. Two runtimes never
@@ -98,6 +98,16 @@ object Runtime {
     * graph access. On Scala.js the binding is moot and the runtime is simply a separate one.
     */
   def confined(): Runtime = new Runtime(RuntimePermit.boundToCurrentThread(), isDefault = false)
+
+  /** The runtime a derived observable with these parents belongs to: the parents' runtime, or the current one when
+    * there are no parents.
+    */
+  private[airstream] def of(parents: JsArray[? <: Observable[?]]): Runtime = {
+    if (parents.length == 0) current else parents(0).runtime
+  }
+
+  /** The runtime a batch over these participants belongs to: theirs, or the current one when the batch is empty. */
+  private[airstream] def of(runtimes: Seq[Runtime]): Runtime = runtimes.headOption.getOrElse(current)
 
   /** The runtime whose turn the current thread is inside, or the default runtime when it is inside none. */
   def current: Runtime = {

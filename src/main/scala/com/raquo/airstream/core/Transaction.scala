@@ -104,7 +104,7 @@ object Transaction {
   /** Create a new transaction in `runtime`: the form Airstream's observables use, so a transaction is filed with the
     * runtime of the observable that emits in it rather than with whatever the current thread happens to be inside.
     */
-  private[airstream] def apply(runtime: Runtime, code: Transaction => Unit): Unit = new Transaction(runtime, code)
+  private[airstream] def apply(runtime: Runtime)(code: Transaction => Unit): Unit = new Transaction(runtime, code)
 
   /** How many _nested_ transactions you can have.
     *

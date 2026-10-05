@@ -43,7 +43,7 @@ class AnimationFrameStream[I, O](
     maybeRequestHandle = dom.window.requestAnimationFrame { ts =>
       maybeRequestHandle = js.undefined
       // println(s"> init trx from AnimationFrameStream.onTry($nextValue)")
-      Transaction { trx =>
+      Transaction(runtime) { trx =>
         fireTry(nextValue.map(value => project(value, ts)), trx)
       }
     }

@@ -17,7 +17,7 @@ class CustomSignalSource[A](
 ) extends WritableSignal[A] with CustomSource[A] {
 
   override protected val config: Config = makeConfig(
-    value => Transaction(fireTry(value, _)),
+    value => Transaction(runtime)(fireTry(value, _)),
     () => tryNow(),
     () => startIndex,
     () => isStarted

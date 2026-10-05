@@ -32,7 +32,7 @@ with SingleParentSignal[I, O] {
 
   override protected def defaultDisplayName: String = parentDisplayName + displayNameSuffix + s"@${hashCode()}"
 
-  override def tryNow(): Try[O] = {
+  override def tryNow(): Try[O] = runtime.run {
     // dom.console.log(s"> ${this} > tryNow")
     if (parent.isInstanceOf[LazyStrictSignal[?, ?]]) {
       // LazyStrictSignal-s are lazy, so if we want to actively pull a fresh value
@@ -84,26 +84,16 @@ object LazyStrictSignal {
     val _pdn = parentDisplayName
     val _dns = displayNameSuffix
 
-    new LazyStrictSignal[I, O] {
-
-      override protected val topoRank: Int = Protected.topoRank(parentSignal) + 1
-
-      override protected val parent: Signal[I] = parentSignal
+    // A MapSignal without `recover` is exactly this signal's mapping; building on it keeps `parent` a constructor
+    // parameter, which the runtime capture in SingleParentSignal reads while the traits initialise.
+    new MapSignal[I, O](parentSignal, project, recover = None)
+      with LazyStrictSignal[I, O] {
 
       override protected def parentDisplayName: String = _pdn
 
       override protected val displayNameSuffix: String = _dns
 
       override protected def displayClassName: String = s"LazyStrictSignal{}"
-
-      override protected def onTry(nextParentValue: Try[I], transaction: Transaction): Unit = {
-        super.onTry(nextParentValue, transaction)
-        fireTry(nextParentValue.map(project), transaction)
-      }
-
-      override protected def currentValueFromParent(): Try[O] = {
-        parent.tryNow().map(project)
-      }
     }
   }
 

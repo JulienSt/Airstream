@@ -1,6 +1,6 @@
 package com.raquo.airstream.eventbus
 
-import com.raquo.airstream.core.{EventStream, InternalObserver, Observer, Transaction}
+import com.raquo.airstream.core.{EventStream, InternalObserver, Observer, Runtime, Transaction}
 import com.raquo.airstream.ownership.{Owner, Subscription}
 import com.raquo.airstream.util.{FeatureFlags, hasDuplicateKeys}
 
@@ -20,7 +20,7 @@ class WriteBus[A](
   /** Note: this source will be removed when the `owner` you provide says so.
     * To remove this source manually, call .kill() on the resulting Subscription.
     */
-  def addSource(sourceStream: EventStream[A])(implicit owner: Owner): Subscription = {
+  def addSource(sourceStream: EventStream[A])(implicit owner: Owner): Subscription = stream.runtime.run {
     stream.addSource(sourceStream)
     new Subscription(owner, cleanup = () => {
       stream.removeSource(sourceStream)
@@ -47,7 +47,7 @@ class WriteBus[A](
     filterBus
   }
 
-  override def onNext(nextValue: A): Unit = {
+  override def onNext(nextValue: A): Unit = stream.runtime.run {
     if ((FeatureFlags.V18_EVENTBUS_ISSTARTED_FIX_155: @nowarn("msg=deprecated")) || stream.isStarted) {
       // #Note: See https://github.com/raquo/Airstream/issues/155 about isStarted check
       // @TODO[Integrity] We rely on the knowledge that EventBusStream discards the transaction it's given. Laaaame
@@ -55,7 +55,7 @@ class WriteBus[A](
     }
   }
 
-  override def onError(nextError: Throwable): Unit = {
+  override def onError(nextError: Throwable): Unit = stream.runtime.run {
     if ((FeatureFlags.V18_EVENTBUS_ISSTARTED_FIX_155: @nowarn("msg=deprecated")) || stream.isStarted) {
       // #Note: See https://github.com/raquo/Airstream/issues/155 about isStarted check
       // @TODO[Integrity] We rely on the knowledge that EventBusStream discards the transaction it's given. Laaaame
@@ -103,7 +103,7 @@ object WriteBus {
     if (hasDuplicateKeys(values)(_.tuple._1)) {
       throw new Exception("Unable to {EventBus,WriteBus}.emit: the provided list of event buses has duplicates. You can't make an observable emit more than one event per transaction.")
     }
-    Transaction(trx => values.foreach(emitValue(_, trx)))
+    Transaction(runtimeOf(values)(_.tuple._1))(trx => values.foreach(emitValue(_, trx)))
   }
 
   /** Emit events into several WriteBus-es at once (in the same transaction)
@@ -114,7 +114,12 @@ object WriteBus {
     if (hasDuplicateKeys(values)(_.tuple._1)) {
       throw new Exception("Unable to {EventBus,WriteBus}.emitTry: the provided list of event buses has duplicates. You can't make an observable emit more than one event per transaction.")
     }
-    Transaction(trx => values.foreach(emitTryValue(_, trx)))
+    Transaction(runtimeOf(values)(_.tuple._1))(trx => values.foreach(emitTryValue(_, trx)))
+  }
+
+  /** The runtime a batch emission runs in. */
+  private def runtimeOf[A](items: Seq[A])(bus: A => WriteBus[?]): Runtime = {
+    Runtime.of(items.map(item => bus(item).stream.runtime))
   }
 
   @inline private def emitValue[A](tuple: BusTuple[A], transaction: Transaction): Unit = {

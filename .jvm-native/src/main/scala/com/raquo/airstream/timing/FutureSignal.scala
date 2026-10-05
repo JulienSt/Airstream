@@ -44,6 +44,6 @@ class FutureSignal[A](
   private def onFutureCompleted(completed: Try[A]): Unit = {
     // #Note Normally onWillStart must not create transactions or emit values, but it is fine here: the callback always
     //  arrives asynchronously, long after the onWillStart / onStart chain has finished.
-    Transaction(fireTry(completed.map(Some(_)), _))
+    Transaction(runtime)(fireTry(completed.map(Some(_)), _))
   }
 }

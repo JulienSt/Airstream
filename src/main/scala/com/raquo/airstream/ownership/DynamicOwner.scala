@@ -1,6 +1,6 @@
 package com.raquo.airstream.ownership
 
-import com.raquo.airstream.core.{Named, Transaction}
+import com.raquo.airstream.core.{Named, Runtime}
 import com.raquo.airstream.platform.JsArray
 import com.raquo.airstream.util.{FeatureFlags, JsResilientIterator}
 
@@ -34,6 +34,9 @@ extends Named {
 
   private var _maybeCurrentOwner: Option[Owner] = None
 
+  /** The runtime this owner belongs to, captured at construction; every owner it creates is created inside it. */
+  private[airstream] val runtime: Runtime = Runtime.current
+
   @inline def maybeCurrentOwner: Option[Owner] = _maybeCurrentOwner
 
   @inline def isActive: Boolean = _maybeCurrentOwner.isDefined
@@ -50,9 +53,9 @@ extends Named {
 
   // --
 
-  def activate(): Unit = {
+  def activate(): Unit = runtime.run {
     if (!isActive) {
-      Transaction.onStart.shared {
+      runtime.sharedStart.shared {
         val newOwner = new OneTimeOwner(onAccessAfterKilled)
         _maybeCurrentOwner = Some(newOwner)
         if (FeatureFlags.V18_IMMEDIATE_DYNSUB_REMOVAL_FIX_145: @nowarn("msg=deprecated")) {
@@ -80,10 +83,10 @@ extends Named {
     }
   }
 
-  def deactivate(): Unit = {
+  def deactivate(): Unit = runtime.run {
     // println(s"    - deactivating $this (numSubs=${subscriptions.length})")
     if (isActive) {
-      Transaction.onStart.shared {
+      runtime.sharedStart.shared {
         // println(s"> deactivate $this")
 
         // We need to first deactivate all dynamic subscriptions.

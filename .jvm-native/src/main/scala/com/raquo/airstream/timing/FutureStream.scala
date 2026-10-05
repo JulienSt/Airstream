@@ -43,10 +43,10 @@ class FutureStream[A](
       lazyFuture.onComplete {
         case Success(nextValue) =>
           isPending = false
-          Transaction(fireValue(nextValue, _))
+          Transaction(runtime)(fireValue(nextValue, _))
         case Failure(nextError) =>
           isPending = false
-          Transaction(fireError(nextError, _))
+          Transaction(runtime)(fireError(nextError, _))
       }
     }
   }

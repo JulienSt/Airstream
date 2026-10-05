@@ -46,6 +46,12 @@ with DebugOps[Self, A] {
   /** Note: Use Protected.topoRank(observable) to read another observable's topoRank if needed */
   protected val topoRank: Int
 
+  /** The runtime this observable belongs to, fixed at construction: a source captures the runtime the constructing
+    * thread is inside, a derived observable takes its parent's. Every operation on this observable enters it, so the
+    * same graph is never driven from two runtimes. Use Protected.runtime(observable) to read another observable's.
+    */
+  protected[airstream] def runtime: Runtime
+
   override def debugTopoRank: Int = topoRank
 
   /** #WARNING: DO NOT USE THIS METHOD. Use flatMapSwitch... but actually learn about flatmapping first.
@@ -288,6 +294,10 @@ object BaseObservable {
 
   @inline private[airstream] def topoRank[O[+_] <: Observable[?]](observable: BaseObservable[O, ?]): Int = {
     observable.topoRank
+  }
+
+  @inline private[airstream] def runtime[O[+_] <: Observable[?]](observable: BaseObservable[O, ?]): Runtime = {
+    observable.runtime
   }
 
   @inline private[airstream] def maybeWillStart[O[+_] <: Observable[?]](observable: BaseObservable[O, ?]): Unit = {

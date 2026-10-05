@@ -42,7 +42,7 @@ class EventBusStream[A] private[eventbus] (
 
     // println(s"> init trx from EventBusStream(${nextValue})")
 
-    Transaction { trx =>
+    Transaction(runtime) { trx =>
       // #Note: see https://github.com/raquo/Airstream/issues/155 about isStarted check
       if (isStarted || (!FeatureFlags.V18_EVENTBUS_ISSTARTED_FIX_155: @nowarn("msg=deprecated"))) {
         fireValue(nextValue, trx)
@@ -61,7 +61,7 @@ class EventBusStream[A] private[eventbus] (
   }
 
   override protected def onError(nextError: Throwable, transaction: Transaction): Unit = {
-    Transaction { trx =>
+    Transaction(runtime) { trx =>
       // #Note: see https://github.com/raquo/Airstream/issues/155 about isStarted check
       if (isStarted || (!FeatureFlags.V18_EVENTBUS_ISSTARTED_FIX_155: @nowarn("msg=deprecated"))) {
         fireError(nextError, trx)

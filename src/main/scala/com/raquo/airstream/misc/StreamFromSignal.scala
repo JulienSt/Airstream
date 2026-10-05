@@ -42,7 +42,7 @@ class StreamFromSignal[A](
         //  because this stream was stopped for whatever weird reason (is that even possible?).
         //  This would mean that on next onStart, this stream would treat the same
         //  `newParentLastUpdateId` value as unseen, and try to pull it again. Seems reasonable?
-        Transaction.onStart.add { trx =>
+        runtime.sharedStart.add { trx =>
           if (isStarted) {
             // #TODO[Integrity] Do we need to check `newParentLastUpdateId != lastSeenParentUpdateId` again here?
             // We fetch new parent value and new corresponding lastUpdateId, just in case,

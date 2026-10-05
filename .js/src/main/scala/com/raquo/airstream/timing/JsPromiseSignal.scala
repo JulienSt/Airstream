@@ -51,6 +51,6 @@ class JsPromiseSignal[A](promise: => js.Promise[A]) extends WritableSignal[Optio
     // #Note fireTry sets current value even if the signal has no observers
     val nextValue = nextPromiseValue.map(Some(_))
     // println(s"> init trx from FutureSignal($value)")
-    Transaction(fireTry(nextValue, _)) // #Note[onStart,trx,async]
+    Transaction(runtime)(fireTry(nextValue, _)) // #Note[onStart,trx,async]
   }
 }
