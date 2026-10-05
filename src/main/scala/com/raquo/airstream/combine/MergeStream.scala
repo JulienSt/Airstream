@@ -3,9 +3,7 @@ package com.raquo.airstream.combine
 import com.raquo.airstream.common.{InternalParentObserver, MultiParentStream, ObservationExt}
 import com.raquo.airstream.core.{EventStream, Observable, Protected, Runtime, SyncObservable, Transaction, WritableStream}
 import com.raquo.airstream.platform.{undefined, JsArray, UndefOr}
-import com.raquo.airstream.util.{FeatureFlags, JsPriorityQueue}
-
-import scala.annotation.nowarn
+import com.raquo.airstream.util.JsPriorityQueue
 
 /** Stream that emit events from all of its parents.
   *
@@ -88,7 +86,7 @@ class MergeStream[A](
     /** Events with lower sourcePriority values will be emitted first
       * if multiple events are fired at the sae time.
       */
-    val sourcePriority: Int = if (FeatureFlags.V18_TRX_ONSTART_FIX_144: @nowarn("msg=deprecated")) {
+    val sourcePriority: Int = if (runtime.trxOnStartFix144) {
       // Order simultaneous events by topoRank, breaking ties by parent (argument) index rather than
       // by arrival/start order. This matters now that simultaneously-started
       // sources (e.g. several `fromValue`-s under one mount) can deliver their

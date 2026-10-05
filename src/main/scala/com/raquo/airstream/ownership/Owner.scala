@@ -1,9 +1,9 @@
 package com.raquo.airstream.ownership
 
 import com.raquo.airstream.core.{Named, Runtime}
-import com.raquo.airstream.util.{FeatureFlags, JsResilientIterator}
+import com.raquo.airstream.util.JsResilientIterator
 
-import scala.annotation.{nowarn, unused}
+import scala.annotation.unused
 
 /** Owner decides when to kill its subscriptions.
   *  - Ownership is defined at creation of the [[Subscription]]
@@ -30,7 +30,7 @@ extends Named {
   protected[airstream] val runtime: Runtime = Runtime.current
 
   protected def killSubscriptions(): Unit = runtime.run {
-    if (FeatureFlags.V18_IMMEDIATE_DYNSUB_REMOVAL_FIX_145: @nowarn("msg=deprecated")) {
+    if (runtime.immediateDynSubRemovalFix145) {
       // We use `forEachExistingAndAppended`, not `forEachExisting`: a subscription's
       // user-defined `cleanup` function may potentially register a new subscription on
       // this same owner, which would append it to `subscriptions` mid-iteratino.

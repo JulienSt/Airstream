@@ -5,6 +5,9 @@ import com.raquo.airstream.core.AirstreamError.CrossRuntimeAccess
 import com.raquo.airstream.ownership.ManualOwner
 import com.raquo.airstream.state.Var
 
+import com.raquo.airstream.util.FeatureFlags
+
+import scala.annotation.nowarn
 import scala.collection.mutable
 
 /** The entry protocol of a runtime on one thread: `run` installs the runtime as the construction context, reentrant runs
@@ -12,6 +15,11 @@ import scala.collection.mutable
   * rejected before that runtime is touched.
   */
 class RuntimeSpec extends UnitSpec {
+
+  @nowarn("msg=deprecated")
+  private def setTrxOnStartFix144(value: Boolean): Unit = {
+    FeatureFlags.V18_TRX_ONSTART_FIX_144 = value
+  }
 
   it("run returns the body's value and installs the runtime as the construction context") {
     val runtime = Runtime.confined()
@@ -146,6 +154,26 @@ class RuntimeSpec extends UnitSpec {
       AirstreamError.unregisterUnhandledErrorCallback(beforeCallback)
       AirstreamError.unregisterUnhandledErrorCallback(afterCallback)
       AirstreamError.registerUnhandledErrorCallback(AirstreamError.consoleErrorCallback)
+    }
+  }
+
+  it("takes the default runtime's configuration as a snapshot at creation and keeps its own copy afterwards") {
+    val previousMaxDepth = Transaction.maxDepth
+    try {
+      Transaction.maxDepth = 7
+      setTrxOnStartFix144(false)
+      val runtime = Runtime.confined()
+      Transaction.maxDepth = 9
+      setTrxOnStartFix144(true)
+      runtime.maxDepth shouldBe 7
+      runtime.trxOnStartFix144 shouldBe false
+      Runtime.default.maxDepth shouldBe 9
+      Runtime.default.trxOnStartFix144 shouldBe true
+      runtime.maxDepth = 3
+      Transaction.maxDepth shouldBe 9
+    } finally {
+      Transaction.maxDepth = previousMaxDepth
+      setTrxOnStartFix144(true)
     }
   }
 }

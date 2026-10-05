@@ -70,6 +70,35 @@ final class Runtime private (
     */
   var maxDepth: Int = 1000
 
+  // The migration feature flags and the strict-signal reporting flag, per runtime. The process-wide facades
+  // (`FeatureFlags`, `AirstreamError.PRE_V18_STRICT_SIGNAL_ERROR_REPORTING`) read and write the default runtime's copy; a
+  // confined runtime takes the values in force when it is created and is configured through its own fields afterwards.
+
+  /** See `FeatureFlags.V18_EVENTBUS_ISSTARTED_FIX_155`. */
+  private[airstream] var eventBusIsStartedFix155: Boolean = true
+
+  /** See `FeatureFlags.V18_TRX_ONSTART_ADD_FAIL_EARLY`. */
+  private[airstream] var trxOnStartAddFailEarly: Boolean = true
+
+  /** See `FeatureFlags.V18_TRX_ONSTART_FIX_144`. */
+  private[airstream] var trxOnStartFix144: Boolean = true
+
+  /** See `FeatureFlags.V18_IMMEDIATE_DYNSUB_REMOVAL_FIX_145`. */
+  private[airstream] var immediateDynSubRemovalFix145: Boolean = true
+
+  /** See `AirstreamError.PRE_V18_STRICT_SIGNAL_ERROR_REPORTING`. */
+  private[airstream] var strictSignalErrorReporting: Boolean = false
+
+  /** Copy the configuration of `source` into this runtime: the snapshot a new runtime takes of the default runtime. */
+  private def configureFrom(source: Runtime): Unit = {
+    maxDepth = source.maxDepth
+    eventBusIsStartedFix155 = source.eventBusIsStartedFix155
+    trxOnStartAddFailEarly = source.trxOnStartAddFailEarly
+    trxOnStartFix144 = source.trxOnStartFix144
+    immediateDynSubRemovalFix145 = source.immediateDynSubRemovalFix145
+    strictSignalErrorReporting = source.strictSignalErrorReporting
+  }
+
   private var lastUpdateId: Int = 0
 
   /** Allocate the next signal update id. Ids are compared only between signals of one runtime (a child remembers the
@@ -156,11 +185,15 @@ object Runtime {
   /** A new runtime bound to the calling thread: only that thread may enter it, every other thread is rejected before any
     * graph access. On Scala.js the binding is moot and the runtime is simply a separate one.
     */
-  def confined(): Runtime = new Runtime(
-    RuntimePermit.boundToCurrentThread(),
-    isDefault = false,
-    initialUnhandledErrorCallbacks = copyOf(default.unhandledErrorCallbacks)
-  )
+  def confined(): Runtime = {
+    val runtime = new Runtime(
+      RuntimePermit.boundToCurrentThread(),
+      isDefault = false,
+      initialUnhandledErrorCallbacks = copyOf(default.unhandledErrorCallbacks)
+    )
+    runtime.configureFrom(default)
+    runtime
+  }
 
   private def copyOf(callbacks: JsArray[Throwable => Unit]): JsArray[Throwable => Unit] = {
     val copy = JsArray[Throwable => Unit]()

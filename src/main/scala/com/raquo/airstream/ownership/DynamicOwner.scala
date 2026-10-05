@@ -2,9 +2,7 @@ package com.raquo.airstream.ownership
 
 import com.raquo.airstream.core.{Named, Runtime}
 import com.raquo.airstream.platform.JsArray
-import com.raquo.airstream.util.{FeatureFlags, JsResilientIterator}
-
-import scala.annotation.nowarn
+import com.raquo.airstream.util.JsResilientIterator
 
 // #Warning[Fragile] See JsResilientIterator scaladoc, be careful with edits, test thoroughly.
 
@@ -58,7 +56,7 @@ extends Named {
       runtime.sharedStart.shared {
         val newOwner = new OneTimeOwner(onAccessAfterKilled)
         _maybeCurrentOwner = Some(newOwner)
-        if (FeatureFlags.V18_IMMEDIATE_DYNSUB_REMOVAL_FIX_145: @nowarn("msg=deprecated")) {
+        if (runtime.immediateDynSubRemovalFix145) {
           // Note: this does NOT iterate over any subscriptions that are added during the iteration.
           // Such new subs are activated in `addSubscription` below (since `_maybeCurrentOwner` is already set above).
           subscriptions.forEachExisting { sub =>
@@ -94,7 +92,7 @@ extends Named {
         // dynamic subscriptions would not have been notified about this,
         // and would carry dead subscriptions inside of them.
 
-        if (FeatureFlags.V18_IMMEDIATE_DYNSUB_REMOVAL_FIX_145: @nowarn("msg=deprecated")) {
+        if (runtime.immediateDynSubRemovalFix145) {
           subscriptions.forEachExisting(_.onDeactivate())
 
           // After DynamicSubscription-s were removed from the DynamicOwner,

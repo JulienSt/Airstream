@@ -13,7 +13,12 @@ object AirstreamError {
     * using LazyStrictSignal-s without observers.
     */
   @deprecated("Provided as a temporary migration troubleshooting helper only!", since = "18.0.0-M3")
-  var PRE_V18_STRICT_SIGNAL_ERROR_REPORTING = false
+  def PRE_V18_STRICT_SIGNAL_ERROR_REPORTING: Boolean = Runtime.default.strictSignalErrorReporting
+
+  @deprecated("Provided as a temporary migration troubleshooting helper only!", since = "18.0.0-M3")
+  def PRE_V18_STRICT_SIGNAL_ERROR_REPORTING_=(value: Boolean): Unit = {
+    Runtime.default.strictSignalErrorReporting = value
+  }
 
   def getFullMessage(e: Throwable): String = {
     // getMessage can have a custom implementation, and thus can throw

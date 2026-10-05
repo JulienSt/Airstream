@@ -3,9 +3,6 @@ package com.raquo.airstream.eventbus
 import com.raquo.airstream.common.InternalNextErrorObserver
 import com.raquo.airstream.core.{EventStream, Protected, Transaction, WritableStream}
 import com.raquo.airstream.platform.JsArray
-import com.raquo.airstream.util.FeatureFlags
-
-import scala.annotation.nowarn
 
 class EventBusStream[A] private[eventbus] (
   parentDisplayName: => String
@@ -44,7 +41,7 @@ class EventBusStream[A] private[eventbus] (
 
     Transaction(runtime) { trx =>
       // #Note: see https://github.com/raquo/Airstream/issues/155 about isStarted check
-      if (isStarted || (!FeatureFlags.V18_EVENTBUS_ISSTARTED_FIX_155: @nowarn("msg=deprecated"))) {
+      if (isStarted || (!runtime.eventBusIsStartedFix155)) {
         fireValue(nextValue, trx)
       }
     }
@@ -63,7 +60,7 @@ class EventBusStream[A] private[eventbus] (
   override protected def onError(nextError: Throwable, transaction: Transaction): Unit = {
     Transaction(runtime) { trx =>
       // #Note: see https://github.com/raquo/Airstream/issues/155 about isStarted check
-      if (isStarted || (!FeatureFlags.V18_EVENTBUS_ISSTARTED_FIX_155: @nowarn("msg=deprecated"))) {
+      if (isStarted || (!runtime.eventBusIsStartedFix155)) {
         fireError(nextError, trx)
       }
     }

@@ -3,9 +3,6 @@ package com.raquo.airstream.custom
 import com.raquo.airstream.core.{EventStream, Transaction, WritableStream}
 import com.raquo.airstream.custom.CustomSource._
 import com.raquo.airstream.platform.JsArray
-import com.raquo.airstream.util.FeatureFlags
-
-import scala.annotation.nowarn
 
 /** Use this to easily create a custom signal from an external source
   *
@@ -38,10 +35,7 @@ class CustomStreamSource[A](
     * otherwise fire it in a new transaction right away, as usual.
     */
   private def scheduleTransaction(fire: Transaction => Unit): Unit = runtime.run {
-    if (
-      runtime.sharedStart.isInSharedStart &&
-      (FeatureFlags.V18_TRX_ONSTART_FIX_144: @nowarn("msg=deprecated"))
-    ) {
+    if (runtime.sharedStart.isInSharedStart && runtime.trxOnStartFix144) {
       onStartCallbacks.push(fire)
     } else {
       Transaction(runtime)(fire)
