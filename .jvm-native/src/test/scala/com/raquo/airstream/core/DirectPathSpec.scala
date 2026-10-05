@@ -26,9 +26,14 @@ class DirectPathSpec extends UnitSpec {
     override def reportFailure(cause: Throwable): Unit = throw cause
   }
 
+  /** The live threads of this thread's group, by name and id; enumerated through the group because Scala Native has no
+    * `Thread.getAllStackTraces`.
+    */
   private def liveThreads: Set[String] = {
-    import scala.jdk.CollectionConverters.*
-    Thread.getAllStackTraces.keySet.asScala.map(thread => s"${thread.getName}#${thread.getId}").toSet
+    val group = Thread.currentThread().getThreadGroup
+    val threads = new Array[Thread](group.activeCount() * 2 + 8)
+    val count = group.enumerate(threads, true)
+    threads.take(count).filter(_ ne null).map(thread => s"${thread.getName}#${thread.getId}").toSet
   }
 
   it("runs synchronous graphs without an executor submission or a new thread") {
