@@ -121,4 +121,31 @@ class RuntimeSpec extends UnitSpec {
     Protected.lastUpdateId(va.signal) shouldBe 2
     Protected.lastUpdateId(vb.signal) shouldBe 1
   }
+
+  it("routes an unhandled error to the callbacks of the runtime it happens in, with the default's callbacks snapshotted at creation") {
+    val before = mutable.Buffer[Throwable]()
+    val after = mutable.Buffer[Throwable]()
+    val own = mutable.Buffer[Throwable]()
+    val beforeCallback: Throwable => Unit = before += _
+    val afterCallback: Throwable => Unit = after += _
+    AirstreamError.unregisterUnhandledErrorCallback(AirstreamError.consoleErrorCallback)
+    AirstreamError.registerUnhandledErrorCallback(beforeCallback)
+    try {
+      val runtime = Runtime.confined()
+      AirstreamError.registerUnhandledErrorCallback(afterCallback)
+      runtime.registerUnhandledErrorCallback(own += _)
+      val err = new Exception("boom")
+      runtime.run(Transaction(_ => throw err))
+      before.toList shouldBe List(err)
+      after.toList shouldBe Nil
+      own.toList shouldBe List(err)
+      Transaction(_ => throw err)
+      after.toList shouldBe List(err)
+      own.toList shouldBe List(err)
+    } finally {
+      AirstreamError.unregisterUnhandledErrorCallback(beforeCallback)
+      AirstreamError.unregisterUnhandledErrorCallback(afterCallback)
+      AirstreamError.registerUnhandledErrorCallback(AirstreamError.consoleErrorCallback)
+    }
+  }
 }

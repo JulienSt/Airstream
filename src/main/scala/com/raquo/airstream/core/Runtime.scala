@@ -1,7 +1,7 @@
 package com.raquo.airstream.core
 
 import com.raquo.airstream.core.AirstreamError.{CrossRuntimeAccess, ForeignThreadEntry}
-import com.raquo.airstream.platform.{JsArray, RuntimePermit, ThreadSlot}
+import com.raquo.airstream.platform.{DevTools, JsArray, RuntimePermit, ThreadSlot, Timers}
 
 /** A runtime is an identity plus the state that Airstream used to keep in process-wide singletons: the transaction
   * stack, the shared-start batching, the update-id counter, the error routing and the configuration. Two runtimes never
@@ -20,7 +20,13 @@ import com.raquo.airstream.platform.{JsArray, RuntimePermit, ThreadSlot}
   * next thread may enter afterwards. A confined runtime is bound to the thread that created it. Scala.js has one thread,
   * so there the permit only tracks whether the runtime is entered.
   */
-final class Runtime private (permit: RuntimePermit, isDefault: Boolean) extends Named {
+final class Runtime private (
+  permit: RuntimePermit,
+  isDefault: Boolean,
+  initialUnhandledErrorCallbacks: JsArray[Throwable => Unit]
+) extends Named {
+
+  private val unhandledErrorCallbacks: JsArray[Throwable => Unit] = initialUnhandledErrorCallbacks
 
   /** Execute `body` inside this runtime: on the permit-holding thread with this runtime as the current context.
     *
@@ -80,8 +86,41 @@ final class Runtime private (permit: RuntimePermit, isDefault: Boolean) extends 
     lastUpdateId
   }
 
-  /** Report an error nothing in the graph handled. Routed through the process-wide callbacks for now. */
-  def sendUnhandledError(err: Throwable): Unit = AirstreamError.sendUnhandledError(err)
+  /** Add a callback for errors this runtime's graphs leave unhandled. The default runtime starts with
+    * `AirstreamError.consoleErrorCallback`; a confined runtime starts with a copy of the default runtime's callbacks.
+    */
+  def registerUnhandledErrorCallback(fn: Throwable => Unit): Unit = {
+    unhandledErrorCallbacks.push(fn)
+  }
+
+  /** Remove a callback added with [[registerUnhandledErrorCallback]]; throws when it is not registered here. */
+  def unregisterUnhandledErrorCallback(fn: Throwable => Unit): Unit = {
+    val ix = unhandledErrorCallbacks.indexOf(fn)
+    if (ix >= 0) {
+      unhandledErrorCallbacks.splice(ix, deleteCount = 1)
+    } else {
+      throw new Exception("This function is not currently registered as unhandled error callback. Make sure you're not accidentally creating a new function value when calling this.")
+    }
+  }
+
+  /** Report an error nothing in this runtime's graph handled to its callbacks. Unhandled error reporting is the last
+    * line of defence for errors that would otherwise disappear; see `AirstreamError.registerUnhandledErrorCallback`.
+    */
+  // @TODO[API,Integrity] How should we report errors here? Must make sure to not induce an infinite loop. Throw an error in a setTimeout?
+  def sendUnhandledError(err: Throwable): Unit = {
+    unhandledErrorCallbacks.forEach { fn =>
+      try {
+        fn(err)
+      } catch {
+        case err: Throwable if fn == AirstreamError.unsafeRethrowErrorCallback =>
+          // Note: this does not let other error callbacks execute
+          throw err
+        case err: Throwable =>
+          DevTools.warn("Error processing an unhandled error callback:")
+          Timers.setTimeout(0)(throw err)
+      }
+    }
+  }
 
   /** True while some thread is inside `run` on this runtime. */
   def isEntered: Boolean = permit.isHeld
@@ -108,12 +147,26 @@ object Runtime {
     * `AirstreamError.registerUnhandledErrorCallback`, `Timers`) read and write, so code written before runtimes existed
     * keeps its behaviour.
     */
-  val default: Runtime = new Runtime(RuntimePermit.floating(), isDefault = true)
+  val default: Runtime = new Runtime(
+    RuntimePermit.floating(),
+    isDefault = true,
+    initialUnhandledErrorCallbacks = JsArray(AirstreamError.consoleErrorCallback)
+  )
 
   /** A new runtime bound to the calling thread: only that thread may enter it, every other thread is rejected before any
     * graph access. On Scala.js the binding is moot and the runtime is simply a separate one.
     */
-  def confined(): Runtime = new Runtime(RuntimePermit.boundToCurrentThread(), isDefault = false)
+  def confined(): Runtime = new Runtime(
+    RuntimePermit.boundToCurrentThread(),
+    isDefault = false,
+    initialUnhandledErrorCallbacks = copyOf(default.unhandledErrorCallbacks)
+  )
+
+  private def copyOf(callbacks: JsArray[Throwable => Unit]): JsArray[Throwable => Unit] = {
+    val copy = JsArray[Throwable => Unit]()
+    callbacks.forEach(copy.push(_))
+    copy
+  }
 
   /** The runtime a derived observable with these parents belongs to: the parents' runtime, or the current one when
     * there are no parents.

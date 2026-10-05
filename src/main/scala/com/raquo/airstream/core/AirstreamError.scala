@@ -2,8 +2,6 @@ package com.raquo.airstream.core
 
 import com.raquo.airstream.platform.{DevTools, Timers}
 
-import scala.collection.mutable
-
 sealed abstract class AirstreamError(message: String) extends Throwable(message)
 
 object AirstreamError {
@@ -129,9 +127,10 @@ object AirstreamError {
     * a) we want to maximally disconnect it from the rest of Airstream's Transaction infrastructure
     * b) we want easier debugging, and thus a shorter stack trace
     *
-    * Instead, we provide a similar Observer-based API as described below.
+    * Instead, we provide a similar Observer-based API as described below. The callbacks belong to a runtime: the methods
+    * here register with the default runtime, which is where every graph lives unless it was created inside another
+    * `Runtime`, and a new runtime starts with a copy of the default runtime's callbacks at that moment.
     */
-  private val unhandledErrorCallbacks = mutable.Buffer[Throwable => Unit]()
 
   /** Note: In IE, console is not defined unless the developer tools console is actually open.
     * Some test environments might be lacking the console as well (e.g. node.js without jsdom).
@@ -165,35 +164,18 @@ object AirstreamError {
     Timers.setTimeout(0)(throw err)
   }
 
+  /** Register `fn` with the default runtime. See `Runtime.registerUnhandledErrorCallback` for another runtime. */
   def registerUnhandledErrorCallback(fn: Throwable => Unit): Unit = {
-    unhandledErrorCallbacks.append(fn)
+    Runtime.default.registerUnhandledErrorCallback(fn)
   }
 
+  /** Remove `fn` from the default runtime's callbacks; throws when it is not registered there. */
   def unregisterUnhandledErrorCallback(fn: Throwable => Unit): Unit = {
-    val ix = unhandledErrorCallbacks.indexOf(fn)
-    if (ix >= 0) {
-      unhandledErrorCallbacks.remove(ix)
-    } else {
-      throw new Exception("This function is not currently registered as unhandled error callback. Make sure you're not accidentally creating a new function value when calling this.")
-    }
+    Runtime.default.unregisterUnhandledErrorCallback(fn)
   }
 
-  // @TODO[API,Integrity] How should we report errors here? Must make sure to not induce an infinite loop. Throw an error in a setTimeout?
-  def sendUnhandledError(err: Throwable): Unit = {
-    unhandledErrorCallbacks.foreach { fn =>
-      try {
-        fn(err)
-      } catch {
-        case err: Throwable if fn == unsafeRethrowErrorCallback =>
-          // Note: this does not let other error callbacks execute
-          throw err
-        case err: Throwable =>
-          DevTools.warn("Error processing an unhandled error callback:")
-          Timers.setTimeout(0)(throw err)
-      }
-    }
-  }
-
-  /** To remove console logger, call .unregisterUnhandledErrorCallback(consoleErrorCallback) */
-  registerUnhandledErrorCallback(consoleErrorCallback)
+  /** Report `err` to the runtime the current thread is inside: the one whose turn produced the error, or the default
+    * runtime when called from outside every turn.
+    */
+  def sendUnhandledError(err: Throwable): Unit = Runtime.current.sendUnhandledError(err)
 }
