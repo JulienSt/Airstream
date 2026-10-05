@@ -329,16 +329,8 @@ with SignalPlatformOps // Provides fromFuture, and the promise constructors wher
 
   implicit def toTupleSignal22[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21, T22](stream: Signal[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21, T22)]): TupleSignal22[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21, T22] = new TupleSignal22(stream)
 
-  private var lastUpdateId: Int = 0
-
-  def nextUpdateId(): Int = {
-    // Note: Int.MaxValue is lower than JS native Number.MAX_SAFE_INTEGER
-    if (lastUpdateId == Int.MaxValue) {
-      // start with 1 because 0 is a special value indicating "initial value".
-      lastUpdateId = 1
-    } else {
-      lastUpdateId += 1
-    }
-    lastUpdateId
-  }
+  /** The next update id of the runtime the current thread is inside. Signals take theirs from their own runtime
+    * (`runtime.nextUpdateId()`); this remains for callers that allocated ids through the companion.
+    */
+  def nextUpdateId(): Int = Runtime.current.nextUpdateId()
 }

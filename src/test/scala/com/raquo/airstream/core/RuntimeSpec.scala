@@ -108,4 +108,17 @@ class RuntimeSpec extends UnitSpec {
     cleanupRuntimes.toList shouldBe List(runtime)
     runtime.isEntered shouldBe false
   }
+
+  it("allocates update ids per runtime: a fresh runtime's first update is id 1 whatever other runtimes did") {
+    implicit val protectedAccess: Protected = Protected.protectedAccessEvidence
+    val a = Runtime.confined()
+    val b = Runtime.confined()
+    val va = a.run(Var(0))
+    val vb = b.run(Var(0))
+    va.set(1)
+    va.set(2)
+    vb.set(1)
+    Protected.lastUpdateId(va.signal) shouldBe 2
+    Protected.lastUpdateId(vb.signal) shouldBe 1
+  }
 }

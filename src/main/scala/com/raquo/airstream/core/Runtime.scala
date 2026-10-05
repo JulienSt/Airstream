@@ -64,6 +64,22 @@ final class Runtime private (permit: RuntimePermit, isDefault: Boolean) extends 
     */
   var maxDepth: Int = 1000
 
+  private var lastUpdateId: Int = 0
+
+  /** Allocate the next signal update id. Ids are compared only between signals of one runtime (a child remembers the
+    * id of its parent's last update), so each runtime counts on its own and another runtime's traffic never advances
+    * them; `0` stays the "initial value" marker and the counter wraps to `1`.
+    */
+  private[airstream] def nextUpdateId(): Int = {
+    // Note: Int.MaxValue is lower than JS native Number.MAX_SAFE_INTEGER
+    if (lastUpdateId == Int.MaxValue) {
+      lastUpdateId = 1
+    } else {
+      lastUpdateId += 1
+    }
+    lastUpdateId
+  }
+
   /** Report an error nothing in the graph handled. Routed through the process-wide callbacks for now. */
   def sendUnhandledError(err: Throwable): Unit = AirstreamError.sendUnhandledError(err)
 

@@ -17,7 +17,7 @@ trait WritableSignal[A] extends Signal[A] with WritableObservable[A] {
     val isInitial = maybeLastSeenCurrentValue.isEmpty
     // dom.console.log(s"> ${this} > setCurrentValue > ${newValue}, isInitial = ${isInitial}")
     if (!isInitial) {
-      _lastUpdateId = Signal.nextUpdateId()
+      _lastUpdateId = runtime.nextUpdateId()
     }
     maybeLastSeenCurrentValue = newValue
   }
@@ -40,7 +40,7 @@ trait WritableSignal[A] extends Signal[A] with WritableObservable[A] {
       //  - Currently, tests pass either way, but it's hard to tell definitely
       //    if this change would really be ok.
       // dom.console.log(s"${this} -> eval current value from tryNow")
-      _lastUpdateId = Signal.nextUpdateId()
+      _lastUpdateId = runtime.nextUpdateId()
       val nextValue = currentValueFromParent()
       setCurrentValue(nextValue)
       nextValue
