@@ -43,10 +43,15 @@ class Transaction private[airstream] (
     * Note: The transaction may be _actually scheduled_ one layer deeper
     * than this `depth` due to the `postStartTransactions` mechanism,
     * but this is good enough for `maxDepth` purposes.
+    *
+    * Assigned first thing inside the one entry below, before the transaction is scheduled: a root transaction runs while
+    * it is being scheduled, and the transactions it creates read this depth. One entry, not one to compute the depth and
+    * another to schedule, because a root write pays its entry once (`RootEntrySpec`).
     */
-  private val depth: Int = runtime.run(runtime.transactions.peekStack().fold(1)(_.depth + 1))
+  private var depth: Int = 0
 
   runtime.run {
+    depth = runtime.transactions.peekStack().fold(1)(_.depth + 1)
     runtime.traceTransactionCreated()
     if (depth <= runtime.maxDepth || runtime.maxDepth == -1) {
       if (runtime.sharedStart.isInSharedStart) {
