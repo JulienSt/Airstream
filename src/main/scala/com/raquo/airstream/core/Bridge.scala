@@ -34,12 +34,12 @@ sealed abstract class Bridge private[core] (private[core] val link: BridgeLink[?
   /** Close the target endpoint: its receipt completes in a target turn after which no message is applied any more. The
     * source endpoint stays attached until `close`, so messages may still be sent and are dropped at the target.
     */
-  def closeTarget(): Receipt = link.closeTarget()
+  def closeTarget(): Receipt = link.target.close()
 
   /** Close the whole bridge: the source endpoint is detached in a source turn, then the target endpoint is closed in a
     * target turn after every message the source sent before; the receipt completes when both are done.
     */
-  def close(): Receipt = link.close()
+  def close(): Receipt = link.source.closeBoth()
 }
 
 /** A bridge for events: each event or error of the source stream is emitted on a target bus. */
@@ -53,7 +53,8 @@ object EventBridge {
     * @throws IllegalArgumentException when the target runtime does not admit asynchronous submissions
     */
   def apply[A](source: EventStream[A], target: EventBus[A]): EventBridge = {
-    new EventBridge(BridgeLink.attach[A](source, target.events.runtime, target.emitTry))
+    val link = BridgeLink.attach[A](source, new BusEndpoint[A](target))
+    source.runtime.run(new EventBridge(link))
   }
 }
 
@@ -72,42 +73,62 @@ object SignalBridge {
     * @throws IllegalArgumentException when the target runtime does not admit asynchronous submissions
     */
   def apply[A](source: Signal[A], target: Var[A]): SignalBridge = {
-    new SignalBridge(BridgeLink.attach[A](source, target.runtime, target.setTry))
+    val link = BridgeLink.attach[A](source, new VarEndpoint[A](target))
+    source.runtime.run(new SignalBridge(link))
   }
 }
 
-/** Both endpoints of one bridge. The source endpoint's fields belong to the source runtime and the target endpoint's to
-  * the target runtime; each is touched only in that runtime's turns. The two flags are read across runtimes, by `close`.
+/** The two endpoints of one bridge. Each belongs to one runtime and is touched only in that runtime's turns; what crosses
+  * between them is a sequence number with an immutable value, handed over through the target runtime's `submit`.
   */
-private[core] final class BridgeLink[A] private (
-  sourceRuntime: Runtime,
-  targetRuntime: Runtime,
-  write: Try[A] => Unit
-) {
+private[core] final class BridgeLink[A](val source: SourceEndpoint[A], val target: TargetEndpoint[A])
 
-  // Source endpoint, under the source runtime's permit.
+private[core] object BridgeLink {
+
+  /** Create both endpoints and attach the source one, inside the source runtime. */
+  def attach[A](observable: Observable[A], target: TargetEndpoint[A]): BridgeLink[A] = {
+    val sourceRuntime = observable.runtime
+    if (!target.runtime.admitsSubmissions) {
+      throw new IllegalArgumentException(
+        s"A bridge delivers into a runtime that admits asynchronous submissions; ${target.runtime.displayName} is a direct " +
+          "runtime. Bridge into a scheduled or a dispatched runtime."
+      )
+    }
+    sourceRuntime.run {
+      val source = new SourceEndpoint[A](sourceRuntime, target)
+      source.attachTo(observable)
+      new BridgeLink[A](source, target)
+    }
+  }
+}
+
+/** The source side of a bridge: an observer of the source, the next sequence number, and the decision to stop sending.
+  * Its fields belong to the source runtime; `detached` is also read by a full close called from any thread.
+  */
+private[core] final class SourceEndpoint[A](sourceRuntime: Runtime, target: TargetEndpoint[A]) {
 
   private val owner: ManualOwner = new ManualOwner
 
   private var nextSequence: Long = 0L
 
-  private val sourceDetached: AtomicFlag = new AtomicFlag
+  private val detached: AtomicFlag = new AtomicFlag
 
-  // Target endpoint, under the target runtime's permit.
-
-  private var expected: Long = 0L
-
-  private val early: mutable.HashMap[Long, Try[A]] = mutable.HashMap.empty
-
-  private val targetClosed: AtomicFlag = new AtomicFlag
+  /** In the source turn that creates the bridge: hold this endpoint, have the target hold its own before any message, and
+    * observe the source, whose initial notification (for a signal) is the snapshot.
+    */
+  def attachTo(observable: Observable[A]): Unit = {
+    sourceRuntime.holdBridgeSource(this)
+    // Admitted before the snapshot. A refusal needs no handling here: the snapshot is refused the same way.
+    target.hold()
+    observable.addObserver(Observer.fromTry[A](send))(owner)
+  }
 
   /** In the source turn: number the notification and hand it to the target runtime. */
   private def send(value: Try[A]): Unit = {
-    if (!sourceDetached.get) {
+    if (!detached.get) {
       val sequence = nextSequence
       nextSequence += 1
-      val receipt = targetRuntime.submit(receive(sequence, value))
-      receipt.accepted.value.flatMap(_.failed.toOption).foreach(refused)
+      target.offer(sequence, value).foreach(refused)
     }
   }
 
@@ -115,15 +136,75 @@ private[core] final class BridgeLink[A] private (
     * closed refused on purpose; any other refusal (a full mailbox, a failed runtime) is reported to the source runtime.
     */
   private def refused(rejection: Throwable): Unit = {
-    detachSource()
-    if (targetRuntime.state eq RuntimeState.Open) {
-      sourceRuntime.sendUnhandledError(DeliveryRejected(targetRuntime, rejection))
+    sourceRuntime.run(detach())
+    if (target.runtime.state eq RuntimeState.Open) {
+      sourceRuntime.sendUnhandledError(DeliveryRejected(target.runtime, rejection))
     }
+  }
+
+  /** In a source turn: stop observing the source. Idempotent. */
+  def detach(): Unit = {
+    if (detached.compareAndSet(false, true)) {
+      sourceRuntime.forgetBridgeSource(this)
+      owner.killSubscriptions()
+    }
+  }
+
+  /** The full close: detach in a source turn, then close the target in a target turn admitted after every message sent. */
+  def closeBoth(): Receipt = {
+    val closed = Promise[Unit]()
+    val receipt = sourceRuntime.submit(detachThenCloseTarget(closed))
+    receipt.accepted.value.flatMap(_.failed.toOption) match {
+      case None => new Receipt(receipt.id, Future.unit, closed.future)
+      case Some(_) if detached.get =>
+        // The source runtime closed and released this endpoint after its last turn, so every message it sent is already
+        // admitted at the target; only the target endpoint is left.
+        target.closeAfter(closed)
+        new Receipt(receipt.id, Future.unit, closed.future)
+      case Some(_) => receipt
+    }
+  }
+
+  private def detachThenCloseTarget(closed: Promise[Unit]): Unit = {
+    detach()
+    target.closeAfter(closed)
+  }
+}
+
+/** The target side of a bridge: the next sequence number it expects, the messages that arrived early, and whether it is
+  * closed. Its fields belong to the target runtime; every method that touches them runs in a target turn it submitted.
+  */
+private[core] sealed abstract class TargetEndpoint[A](val runtime: Runtime) {
+
+  private var expected: Long = 0L
+
+  private val early: mutable.HashMap[Long, Try[A]] = mutable.HashMap.empty
+
+  private val closed: AtomicFlag = new AtomicFlag
+
+  /** Apply one value in the target turn, at its root, so it starts a new target transaction. */
+  protected def write(value: Try[A]): Unit
+
+  /** From the source turn: have the target runtime hold this endpoint, so its close can release it. */
+  def hold(): Unit = {
+    runtime.submit(holdInside())
+    ()
+  }
+
+  private def holdInside(): Unit = {
+    if (!closed.get) {
+      runtime.holdBridgeTarget(this)
+    }
+  }
+
+  /** From the source turn: hand a message over; the refusal, when the target runtime did not admit it. */
+  def offer(sequence: Long, value: Try[A]): Option[Throwable] = {
+    runtime.submit(receive(sequence, value)).accepted.value.flatMap(_.failed.toOption)
   }
 
   /** In a target turn: apply the message when it is the next one, buffer it when it arrived early. */
   private[core] def receive(sequence: Long, value: Try[A]): Unit = {
-    if (!targetClosed.get) {
+    if (!closed.get) {
       early.update(sequence, value)
       applyInOrder()
     }
@@ -134,90 +215,50 @@ private[core] final class BridgeLink[A] private (
     while (next.isDefined) {
       val sequence = expected
       expected += 1
-      targetRuntime.traceBridgeMessageDelivered(sequence)
+      runtime.traceBridgeMessageDelivered(sequence)
       try {
         write(next.get)
       } catch {
-        case NonFatal(err) => targetRuntime.sendUnhandledError(err)
+        case NonFatal(err) => runtime.sendUnhandledError(err)
       }
       next = early.remove(expected)
     }
   }
 
-  /** In a source turn: stop observing the source. Idempotent. */
-  private[core] def detachSource(): Unit = {
-    if (sourceDetached.compareAndSet(false, true)) {
-      sourceRuntime.forgetBridgeSource(this)
-      owner.killSubscriptions()
+  /** The target-close acknowledgement: a target turn after which nothing is applied. */
+  def close(): Receipt = runtime.submit(closeInside())
+
+  /** Close in a target turn and settle `done` there; a target that already closed or is closing counts as closed. */
+  def closeAfter(done: Promise[Unit]): Unit = {
+    val receipt = runtime.submit(closeAndSettle(done))
+    receipt.accepted.value.flatMap(_.failed.toOption).foreach { rejection =>
+      if (runtime.state eq RuntimeState.Open) done.tryFailure(rejection) else done.trySuccess(())
     }
   }
 
-  /** In a target turn: the target runtime now holds this endpoint, so its close can release it. */
-  private def holdTarget(): Unit = {
-    if (!targetClosed.get) {
-      targetRuntime.holdBridgeTarget(this)
-    }
+  private def closeAndSettle(done: Promise[Unit]): Unit = {
+    closeInside()
+    done.trySuccess(())
+    ()
   }
 
   /** In a target turn: apply nothing any more and drop what is buffered. Idempotent. */
-  private[core] def closeTargetEndpoint(): Unit = {
-    if (targetClosed.compareAndSet(false, true)) {
-      targetRuntime.forgetBridgeTarget(this)
+  def closeInside(): Unit = {
+    if (closed.compareAndSet(false, true)) {
+      runtime.forgetBridgeTarget(this)
       early.clear()
-    }
-  }
-
-  def closeTarget(): Receipt = targetRuntime.submit(closeTargetEndpoint())
-
-  def close(): Receipt = {
-    val closed = Promise[Unit]()
-    val receipt = sourceRuntime.submit {
-      detachSource()
-      closeTargetAfter(closed)
-    }
-    receipt.accepted.value.flatMap(_.failed.toOption) match {
-      case None => new Receipt(receipt.id, Future.unit, closed.future)
-      case Some(_) if sourceDetached.get =>
-        // The source runtime closed and released the source endpoint after its last turn, so every message it sent is
-        // already admitted at the target; only the target endpoint is left.
-        closeTargetAfter(closed)
-        new Receipt(receipt.id, Future.unit, closed.future)
-      case Some(_) => receipt
-    }
-  }
-
-  /** Close the target endpoint in a target turn admitted after every message this source sent. */
-  private def closeTargetAfter(closed: Promise[Unit]): Unit = {
-    val receipt = targetRuntime.submit {
-      closeTargetEndpoint()
-      closed.trySuccess(())
-      ()
-    }
-    receipt.accepted.value.flatMap(_.failed.toOption).foreach { rejection =>
-      if (targetRuntime.state eq RuntimeState.Open) closed.tryFailure(rejection) else closed.trySuccess(())
     }
   }
 }
 
-private[core] object BridgeLink {
+/** A target endpoint that emits on an event bus. */
+private[core] final class BusEndpoint[A](bus: EventBus[A]) extends TargetEndpoint[A](bus.events.runtime) {
 
-  /** Create both endpoints and attach the source one, inside the source runtime. */
-  def attach[A](source: Observable[A], targetRuntime: Runtime, write: Try[A] => Unit): BridgeLink[A] = {
-    val sourceRuntime = source.runtime
-    if (!targetRuntime.admitsSubmissions) {
-      throw new IllegalArgumentException(
-        s"A bridge delivers into a runtime that admits asynchronous submissions; ${targetRuntime.displayName} is a direct " +
-          "runtime. Bridge into a scheduled or a dispatched runtime."
-      )
-    }
-    sourceRuntime.run {
-      val link = new BridgeLink[A](sourceRuntime, targetRuntime, write)
-      sourceRuntime.holdBridgeSource(link)
-      // Admitted before the snapshot, so the target holds its endpoint before any message arrives. A refusal needs no
-      // handling here: the snapshot is refused the same way and detaches the source.
-      targetRuntime.submit(link.holdTarget())
-      source.addObserver(Observer.fromTry[A](link.send))(link.owner)
-      link
-    }
-  }
+  override protected def write(value: Try[A]): Unit = bus.emitTry(value)
+}
+
+/** A target endpoint that sets a Var. */
+private[core] final class VarEndpoint[A](variable: Var[A]) extends TargetEndpoint[A](variable.runtime) {
+
+  override protected def write(value: Try[A]): Unit = variable.setTry(value)
 }

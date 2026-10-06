@@ -80,10 +80,10 @@ class BridgeSpec extends UnitSpec {
       val reordered = inTurn(b)(Var(-1))
       val reorderedSeen = new AtomicReference(Vector.empty[Int])
       inTurn(b)(reordered.signal.foreach(value => reorderedSeen.updateAndGet(_ :+ value))(new ManualOwner))
-      val link = inTurn(a)(SignalBridge(source.signal, reordered)).link.asInstanceOf[BridgeLink[Int]]
+      val endpoint = inTurn(a)(SignalBridge(source.signal, reordered)).link.target.asInstanceOf[TargetEndpoint[Int]]
       inTurn(b) {
-        link.receive(2, Success(30))
-        link.receive(1, Success(20))
+        endpoint.receive(2, Success(30))
+        endpoint.receive(1, Success(20))
       }
       reorderedSeen.get shouldBe Vector(-1, 0, 20, 30)
     }

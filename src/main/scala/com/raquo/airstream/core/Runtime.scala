@@ -434,12 +434,12 @@ final class Runtime private (
     scopes.forEach(closing.push(_))
     closing.forEach(scope => releasing(scope.close()))
     releasing(timers.cancelAll())
-    val sources = JsArray[BridgeLink[?]]()
+    val sources = JsArray[SourceEndpoint[?]]()
     bridgeSources.forEach(sources.push(_))
-    sources.forEach(link => releasing(link.detachSource()))
-    val targets = JsArray[BridgeLink[?]]()
+    sources.forEach(endpoint => releasing(endpoint.detach()))
+    val targets = JsArray[TargetEndpoint[?]]()
     bridgeTargets.forEach(targets.push(_))
-    targets.forEach(link => releasing(link.closeTargetEndpoint()))
+    targets.forEach(endpoint => releasing(endpoint.closeInside()))
   }
 
   /** Run one cleanup step; a failure is reported and the cleanup goes on without attempting rollback. */
@@ -486,22 +486,25 @@ final class Runtime private (
   /** The bridges whose source endpoint is attached here, and those whose target endpoint is open here, for the close.
     * Touched only under the permit.
     */
-  private val bridgeSources: JsArray[BridgeLink[?]] = JsArray()
+  private val bridgeSources: JsArray[SourceEndpoint[?]] = JsArray()
 
-  private val bridgeTargets: JsArray[BridgeLink[?]] = JsArray()
+  private val bridgeTargets: JsArray[TargetEndpoint[?]] = JsArray()
 
-  private[airstream] def holdBridgeSource(link: BridgeLink[?]): Unit = bridgeSources.push(link)
+  private[airstream] def holdBridgeSource(endpoint: SourceEndpoint[?]): Unit = bridgeSources.push(endpoint)
 
-  private[airstream] def holdBridgeTarget(link: BridgeLink[?]): Unit = bridgeTargets.push(link)
+  private[airstream] def holdBridgeTarget(endpoint: TargetEndpoint[?]): Unit = bridgeTargets.push(endpoint)
 
-  private[airstream] def forgetBridgeSource(link: BridgeLink[?]): Unit = forget(bridgeSources, link)
-
-  private[airstream] def forgetBridgeTarget(link: BridgeLink[?]): Unit = forget(bridgeTargets, link)
-
-  private def forget(links: JsArray[BridgeLink[?]], link: BridgeLink[?]): Unit = {
-    val index = links.indexOf(link)
+  private[airstream] def forgetBridgeSource(endpoint: SourceEndpoint[?]): Unit = {
+    val index = bridgeSources.indexOf(endpoint)
     if (index >= 0) {
-      links.splice(index, deleteCount = 1)
+      bridgeSources.splice(index, deleteCount = 1)
+    }
+  }
+
+  private[airstream] def forgetBridgeTarget(endpoint: TargetEndpoint[?]): Unit = {
+    val index = bridgeTargets.indexOf(endpoint)
+    if (index >= 0) {
+      bridgeTargets.splice(index, deleteCount = 1)
     }
   }
 
