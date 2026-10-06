@@ -72,12 +72,36 @@ final class JsArray[A] private (private val underlying: mutable.ArrayBuffer[A]) 
     underlying.insertAll(index, values)
   }
 
-  /** Find the first index holding `value`.
+  /** Remove `deleteCount` elements starting at `index`, then insert the one `value` there.
+    *
+    * The same call as the varargs form, which the compiler prefers for exactly one value: the priority queues insert one
+    * element per event, and the varargs form wraps it in a sequence and inserts through a view and its iterator, objects
+    * per call that the JavaScript array never makes (`JsPriorityQueueAllocationSpec`).
+    */
+  def splice(index: Int, deleteCount: Int, value: A): Unit = {
+    underlying.remove(index, math.max(0, deleteCount))
+    underlying.insert(index, value)
+  }
+
+  /** Find the first index holding `value`, comparing with `==` as the collection's own search does.
+    *
+    * An explicit loop: the collection's search builds a predicate closure per call, and observer lists and priority queues
+    * search per event.
     *
     * @return
     *   that index, or -1 when the element is absent
     */
-  def indexOf(value: A): Int = underlying.indexOf(value)
+  def indexOf(value: A): Int = {
+    var index = 0
+    var found = -1
+    while (found == -1 && index < underlying.length) {
+      if (underlying(index) == value) {
+        found = index
+      }
+      index += 1
+    }
+    found
+  }
 
   /** Build a new array by applying `transform` to every element, leaving this one untouched.
     *
