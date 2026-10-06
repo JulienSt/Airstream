@@ -1,7 +1,7 @@
 package com.raquo.airstream.core
 
 import com.raquo.airstream.UnitSpec
-import com.raquo.airstream.core.AirstreamError.ScheduledRuntimeEntry
+import com.raquo.airstream.core.AirstreamError.{ForeignThreadEntry, ScheduledRuntimeEntry}
 import com.raquo.airstream.fixtures.ThreadPool
 
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
@@ -45,5 +45,17 @@ class TimerIngressSpec extends UnitSpec {
       fired.get.map(_.startsWith("timer-turns")) shouldBe Vector(true)
       inTurn(runtime)(runtime.timers.pendingCount) shouldBe 0
     }
+  }
+
+  it("rejects scheduling a timer on a confined runtime from a foreign thread before it touches the queue") {
+    val runtime = Runtime.confined()
+    val outcome = new AtomicReference[Option[Throwable]](None)
+    val foreign = new Thread(() => {
+      outcome.set(scala.util.Try(runtime.timers.setTimeout(5)(())).failed.toOption)
+    }, "foreign-timer-caller")
+    foreign.start()
+    foreign.join(timeout.toMillis)
+    outcome.get.map(_.getClass) shouldBe Some(classOf[ForeignThreadEntry])
+    runtime.timers.pendingCount shouldBe 0
   }
 }

@@ -30,7 +30,7 @@ final class RuntimeTimers(runtime: Runtime) {
   private var currentTime: Double = 0.0
 
   /** How many callbacks are waiting. Exposed so a driver can tell whether idling is safe. */
-  def pendingCount: Int = pending.size
+  def pendingCount: Int = runtime.run(pending.size)
 
   /** Run `body` once, no sooner than `delayMillis` after the clock value the next [[runDue]] reports.
     *
@@ -63,14 +63,18 @@ final class RuntimeTimers(runtime: Runtime) {
   /** Cancel a repeating callback. Accepts a handle that already fired or was already cancelled. */
   def clearInterval(handle: IntervalHandle): Unit = cancel(RuntimeTimers.idOfInterval(handle))
 
-  private def schedule(delayMillis: Double, repeatEvery: Option[Double])(body: => Unit): Long = {
+  // Scheduling, cancelling and reading the queue enter the runtime: the queue, the clock and the handle counter are
+  // runtime state, so a thread the runtime does not admit is rejected before it touches them, and a
+  // call from inside a turn is a free reentrant entry.
+
+  private def schedule(delayMillis: Double, repeatEvery: Option[Double])(body: => Unit): Long = runtime.run {
     val handle = nextHandle
     nextHandle += 1
     pending += Pending(handle, currentTime + math.max(0.0, delayMillis), repeatEvery, () => body)
     handle
   }
 
-  private def cancel(handle: Long): Unit = {
+  private def cancel(handle: Long): Unit = runtime.run {
     pending.indexWhere(_.handle == handle) match {
       case -1    => ()
       case index => pending.remove(index)
@@ -88,7 +92,7 @@ final class RuntimeTimers(runtime: Runtime) {
   def now(): Double = currentTime
 
   /** Forget every waiting callback and reset the clock. Exists for tests, which need to start from a known queue. */
-  def clearAll(): Unit = {
+  def clearAll(): Unit = runtime.run {
     pending.clear()
     currentTime = 0.0
   }
