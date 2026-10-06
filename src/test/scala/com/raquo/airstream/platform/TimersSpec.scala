@@ -76,7 +76,10 @@ class TimersSpec extends AnyFunSpec with Matchers {
 
   describe("the clock") {
 
-    it("reports a positive reading, so a caller can subtract two of them") {
+    it("reports a positive reading once the host has reported its time, so a caller can subtract two of them") {
+      // The spec reports the time itself: the clock belongs to the process-wide default runtime, and reading it unreported
+      // would read whatever time an earlier spec left there.
+      HostLoop.reportTime(1000)
       Timers.now() should be > 0.0
     }
 
