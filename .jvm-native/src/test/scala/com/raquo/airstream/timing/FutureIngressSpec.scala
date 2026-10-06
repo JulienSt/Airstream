@@ -1,13 +1,13 @@
 package com.raquo.airstream.timing
 
 import com.raquo.airstream.UnitSpec
-import com.raquo.airstream.core.{EventStream, Receipt, Runtime, Signal}
+import com.raquo.airstream.core.{EventStream, Observer, Receipt, Runtime, Signal}
 import com.raquo.airstream.fixtures.ThreadPool
 import com.raquo.airstream.ownership.ManualOwner
 
 import java.util.concurrent.{CountDownLatch, TimeUnit}
 import java.util.concurrent.atomic.AtomicReference
-import scala.concurrent.{ExecutionContext, Promise}
+import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.concurrent.duration._
 
 /** Asynchronous ingress of the Future adapters on real threads: a completion callback that runs on
@@ -94,6 +94,45 @@ class FutureIngressSpec extends UnitSpec {
       turns.threadNames.contains(seen.get.last._2) shouldBe true
       turns.reported shouldBe Nil
       callbacks.reported shouldBe Nil
+    }
+  }
+
+  it("delivers an already completed Future on an inline execution context when the start finishes, as a direct runtime does") {
+    withPools { (turns, _) =>
+      def subscribe(seen: AtomicReference[Vector[String]]): Unit = {
+        EventStream
+          .fromFuture(Future.successful(5))(ExecutionContext.parasitic)
+          .foreach(value => seen.updateAndGet(_ :+ s"value $value"))(new ManualOwner)
+        seen.updateAndGet(_ :+ "subscribed")
+        ()
+      }
+      val scheduled = Runtime.scheduled(turns)
+      val seenScheduled = new AtomicReference(Vector.empty[String])
+      inTurn(scheduled)(subscribe(seenScheduled))
+      val confined = Runtime.confined()
+      val seenConfined = new AtomicReference(Vector.empty[String])
+      confined.run(subscribe(seenConfined))
+      // The callback runs inline inside the start; its transaction waits for the shared start, which ends inside `foreach`.
+      seenConfined.get shouldBe Vector("value 5", "subscribed")
+      seenScheduled.get shouldBe seenConfined.get
+    }
+  }
+
+  it("delivers a failed Future's error to the observer in a turn of the owning runtime") {
+    withPools { (turns, callbacks) =>
+      val runtime = Runtime.scheduled(turns)
+      val boom = new IllegalStateException("future failed")
+      val errors = new AtomicReference(Vector.empty[Throwable])
+      inTurn(runtime) {
+        EventStream
+          .fromFuture(Future.failed[Int](boom))(callbacks: ExecutionContext)
+          .addObserver(Observer.withRecover[Int](_ => (), { case err => errors.updateAndGet(_ :+ err) }))(new ManualOwner)
+      }
+      val drained = new CountDownLatch(1)
+      callbacks.execute(() => drained.countDown())
+      awaitLatch(drained) shouldBe true
+      inTurn(runtime)(())
+      errors.get shouldBe Vector(boom)
     }
   }
 }
