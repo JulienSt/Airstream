@@ -76,7 +76,10 @@ final class TaskScope private[airstream] (runtime: Runtime) {
   }
 
   /** End the scope: running tasks are asked to cancel, their results are suppressed, and `launch` is rejected. */
-  def close(): Unit = ???
+  def close(): Unit = runtime.run {
+    open = false
+    abandonRunning()
+  }
 
   /** On the worker: hand the result to the runtime. Nothing here touches the scope; the decision is the runtime's. */
   private def returnResult[A](task: ManagedTask, launchedIn: Long, result: Try[A], deliver: Try[A] => Unit): Unit = {

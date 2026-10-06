@@ -55,4 +55,19 @@ class TaskScopeSpec extends UnitSpec {
     first.outcome.value shouldBe Some(Success(TaskOutcome.Suppressed))
     second.outcome.value shouldBe Some(Success(TaskOutcome.Delivered))
   }
+
+  it("rejects a launch into a closed scope and suppresses a result that returns after the scope closed") {
+    val runtime = Runtime.confined()
+    val executor = new PumpedExecutor
+    val seen = mutable.Buffer[Try[Int]]()
+    val scope = runtime.run(runtime.taskScope())
+    val inFlight = runtime.run(scope.launch(executor)(_ => 1)(seen += _))
+    runtime.run(scope.close())
+    val late = runtime.run(scope.launch(executor)(_ => 2)(seen += _))
+    inFlight.isCancelRequested shouldBe true
+    executor.runAll() shouldBe 1
+    seen.toList shouldBe Nil
+    inFlight.outcome.value shouldBe Some(Success(TaskOutcome.Suppressed))
+    late.outcome.value.flatMap(_.toOption).exists(_.isInstanceOf[TaskOutcome.Rejected]) shouldBe true
+  }
 }
