@@ -148,6 +148,15 @@ object AirstreamError {
     override def toString: String = s"ScheduledRuntimeEntry: ${runtime.displayName}"
   }
 
+  /** A thread tried to enter a runtime that was closed. A closed runtime runs nothing any more; its graph stays as the
+    * close left it and is not reachable through it.
+    */
+  case class ClosedRuntimeEntry(runtime: Runtime)
+  extends AirstreamError(s"Runtime entry rejected: ${runtime.displayName} is closed and runs nothing any more.") {
+
+    override def toString: String = s"ClosedRuntimeEntry: ${runtime.displayName}"
+  }
+
   /** `submit` did not admit the command: the mailbox is at capacity, the runtime failed or closed, or a direct runtime
     * could not run the command on the calling thread. The command never ran and has no effect; a retry is a new submit.
     */

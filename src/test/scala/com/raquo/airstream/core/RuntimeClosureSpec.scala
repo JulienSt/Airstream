@@ -1,6 +1,7 @@
 package com.raquo.airstream.core
 
 import com.raquo.airstream.UnitSpec
+import com.raquo.airstream.core.AirstreamError.ClosedRuntimeEntry
 import com.raquo.airstream.fixtures.ManualExecutor
 
 import scala.collection.mutable
@@ -55,5 +56,18 @@ class RuntimeClosureSpec extends UnitSpec {
     delivered.toList shouldBe Nil
     launched.head.outcome.value shouldBe Some(Success(TaskOutcome.Suppressed))
     reported.toList shouldBe Nil
+  }
+
+  it("closes a confined runtime at once on its own thread: the cleanup runs, and a later entry or submission is turned away") {
+    val runtime = Runtime.confined()
+    val workers = new PumpedExecutor
+    val task = runtime.run(runtime.taskScope().launch(workers)(_ => 1)(_ => ()))
+    val closing = runtime.close()
+    closing.completed.value shouldBe Some(Success(()))
+    runtime.state shouldBe RuntimeState.Closed
+    task.isCancelRequested shouldBe true
+    assertThrows[ClosedRuntimeEntry](runtime.run(()))
+    runtime.submit(()).isAccepted shouldBe false
+    runtime.isEntered shouldBe false
   }
 }

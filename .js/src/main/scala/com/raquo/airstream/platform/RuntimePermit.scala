@@ -12,6 +12,9 @@ final class RuntimePermit private (admitsEntry: Boolean) {
 
   private var held: Boolean = false
 
+  /** Set once by the runtime's close: from then on nothing takes the permit. */
+  private var retired: Boolean = false
+
   /** True while the permit is held; the only thread there is holds it. */
   def isHeldByCurrentThread: Boolean = held
 
@@ -19,19 +22,24 @@ final class RuntimePermit private (admitsEntry: Boolean) {
   def isHeld: Boolean = held
 
   /** True when a synchronous entry can take the permit right now. */
-  def mayAcquire: Boolean = admitsEntry && !held
+  def mayAcquire: Boolean = !retired && admitsEntry && !held
 
   /** Take the permit for a synchronous entry; false when it is already held or the permit is scheduled. */
   def acquire(): Boolean = admitsEntry && claim()
 
   /** Take the permit for a drainer's turn; false only when it is already held. */
   def claim(): Boolean = {
-    if (held) {
+    if (held || retired) {
       false
     } else {
       held = true
       true
     }
+  }
+
+  /** Refuse every later `acquire` and `claim`; a current holder keeps the permit until it releases it. */
+  def retire(): Unit = {
+    retired = true
   }
 
   /** Give the permit back. */

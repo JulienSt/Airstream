@@ -23,6 +23,9 @@ final class RuntimePermit private (bound: Thread, admitsEntry: Boolean) {
 
   private val holder: AtomicReference[Thread] = new AtomicReference[Thread](null)
 
+  /** Set once by the runtime's close: from then on nothing takes the permit. */
+  @volatile private var retired: Boolean = false
+
   /** True when the calling thread holds the permit, which is what makes a nested entry free. */
   def isHeldByCurrentThread: Boolean = holder.get() eq Thread.currentThread()
 
@@ -32,7 +35,7 @@ final class RuntimePermit private (bound: Thread, admitsEntry: Boolean) {
   /** True when the calling thread is allowed to acquire the permit right now, without acquiring it. */
   def mayAcquire: Boolean = {
     val current = Thread.currentThread()
-    admitsEntry && isBoundToOrUnbound(current) && {
+    !retired && admitsEntry && isBoundToOrUnbound(current) && {
       val currentHolder = holder.get()
       (currentHolder eq null) || (currentHolder eq current)
     }
@@ -43,7 +46,7 @@ final class RuntimePermit private (bound: Thread, admitsEntry: Boolean) {
     */
   def acquire(): Boolean = {
     val current = Thread.currentThread()
-    admitsEntry && isBoundToOrUnbound(current) && holder.compareAndSet(null, current)
+    !retired && admitsEntry && isBoundToOrUnbound(current) && holder.compareAndSet(null, current)
   }
 
   /** Take the permit for a drainer's turn on the calling thread; false when another thread holds it or the permit is
@@ -51,7 +54,12 @@ final class RuntimePermit private (bound: Thread, admitsEntry: Boolean) {
     */
   def claim(): Boolean = {
     val current = Thread.currentThread()
-    isBoundToOrUnbound(current) && holder.compareAndSet(null, current)
+    !retired && isBoundToOrUnbound(current) && holder.compareAndSet(null, current)
+  }
+
+  /** Refuse every later `acquire` and `claim`; the holder, if any, keeps the permit until it releases it. */
+  def retire(): Unit = {
+    retired = true
   }
 
   /** Give the permit back. Only the holder calls this, so a plain volatile write suffices. */

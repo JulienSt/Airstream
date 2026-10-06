@@ -1,7 +1,7 @@
 package com.raquo.airstream.core
 
-import com.raquo.airstream.core.AirstreamError.{CrossRuntimeAccess, CrossRuntimeEdge, DeliveryRejected, ForeignThreadEntry, ScheduledRuntimeEntry, SubmissionRejected, WaitInsideTurn}
-import com.raquo.airstream.platform.{AtomicCounter, DevTools, DiagnosticLevel, DiagnosticSinks, JsArray, RuntimePermit, RuntimeTimers, ThreadSlot}
+import com.raquo.airstream.core.AirstreamError.{ClosedRuntimeEntry, CrossRuntimeAccess, CrossRuntimeEdge, DeliveryRejected, ForeignThreadEntry, ScheduledRuntimeEntry, SubmissionRejected, WaitInsideTurn}
+import com.raquo.airstream.platform.{AtomicCell, AtomicCounter, DevTools, DiagnosticLevel, DiagnosticSinks, JsArray, RuntimePermit, RuntimeTimers, ThreadSlot}
 
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.control.NonFatal
@@ -59,7 +59,10 @@ final class Runtime private (
   /** Where this runtime is in its lifecycle. A direct runtime stays open; a scheduled runtime fails when its scheduler
     * cannot continue.
     */
-  def state: RuntimeState = if (mailbox eq null) RuntimeState.Open else mailbox.state
+  def state: RuntimeState = if (mailbox eq null) directState.get else mailbox.state
+
+  /** The lifecycle of a direct runtime; a scheduled runtime's lives in its mailbox. */
+  private val directState: AtomicCell[RuntimeState] = new AtomicCell[RuntimeState](RuntimeState.Open)
 
   /** Execute `body` inside this runtime: on the permit-holding thread with this runtime as the current context.
     *
@@ -157,7 +160,9 @@ final class Runtime private (
     * another thread right now.
     */
   private def entryRejection: AirstreamError = {
-    if (mailbox ne null) ScheduledRuntimeEntry(this) else ForeignThreadEntry(this)
+    if (state eq RuntimeState.Closed) ClosedRuntimeEntry(this)
+    else if (mailbox ne null) ScheduledRuntimeEntry(this)
+    else ForeignThreadEntry(this)
   }
 
   /** Submit a command to this runtime from any thread. The receipt's `accepted` future is settled
@@ -341,7 +346,47 @@ final class Runtime private (
     } else if (mailbox ne null) {
       new Receipt(id, Future.unit, mailbox.close())
     } else {
-      ???
+      closeDirect(id)
+    }
+  }
+
+  /** A direct runtime has no queue to drain: its close runs the cleanup at once on the calling thread, under the permit,
+    * when that thread may enter, inline when it is inside the runtime's own turn (the turn then finishes, and nothing
+    * enters after it). A thread that may not enter gets a rejected receipt; a second close finds the runtime closed.
+    */
+  private def closeDirect(id: Long): Receipt = {
+    if (directState.get ne RuntimeState.Open) {
+      new Receipt(id, Future.unit, Future.unit)
+    } else if (permit.isHeldByCurrentThread) {
+      finishDirectClose()
+      new Receipt(id, Future.unit, Future.unit)
+    } else {
+      val active = Runtime.context.get
+      val refusal =
+        if (active ne null) Some(CrossRuntimeAccess(active = active, target = this))
+        else if (!permit.acquire()) Some(entryRejection)
+        else None
+      refusal match {
+        case Some(cause) =>
+          val rejected = SubmissionRejected(this, cause.getMessage)
+          new Receipt(id, Future.failed(rejected), Future.failed(rejected))
+        case None =>
+          entered(finishDirectClose())
+          new Receipt(id, Future.unit, Future.unit)
+      }
+    }
+  }
+
+  /** Under the permit: cut admission, release what the runtime owns, retire the permit, and mark the runtime closed. */
+  private def finishDirectClose(): Unit = {
+    directState.set(RuntimeState.Closing)
+    traceAdmissionClosed()
+    try {
+      releaseOwned()
+    } finally {
+      permit.retire()
+      directState.set(RuntimeState.Closed)
+      traceClosed()
     }
   }
 
@@ -359,6 +404,8 @@ final class Runtime private (
       releaseOwned()
     } finally {
       Runtime.context.set(null)
+      // A dispatched runtime's bound thread could otherwise still enter synchronously.
+      permit.retire()
       permit.release()
     }
   }
