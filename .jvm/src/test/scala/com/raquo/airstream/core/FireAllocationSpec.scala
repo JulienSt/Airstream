@@ -3,6 +3,7 @@ package com.raquo.airstream.core
 import com.raquo.airstream.AllocationMeter.bytesPerCall
 import com.raquo.airstream.UnitSpec
 import com.raquo.airstream.ownership.ManualOwner
+import com.raquo.airstream.state.Var
 
 import scala.util.{Success, Try}
 
@@ -138,6 +139,28 @@ class FireAllocationSpec extends UnitSpec {
     owner.killSubscriptions()
     withClue(s"Observer.onTry $observerBytes, InternalObserver.onTry $internalBytes, stream fireTry $streamBytes bytes: ") {
       (observerBytes < 1.0 && internalBytes < 1.0 && streamBytes < 1.0) shouldBe true
+    }
+  }
+
+  it("a combine node records its parents' update ids without boxing them") {
+    // The same events cost the same whether the update ids are small or large: a boxed id costs nothing only while the
+    // JVM's cache of small Integers covers it, which ids leave after the first hundred updates of a runtime.
+    val runtime = Runtime.confined()
+    val (smallIds, largeIds) = runtime.run {
+      val owner = new ManualOwner
+      val left = Var(0)
+      val right = Var(0)
+      left.signal.combineWith(right.signal).foreach(_ => ())(owner)
+      def bytesAfterId(lastId: Int): Double = {
+        runtime.continueUpdateIdsAfter(lastId)
+        bytesPerCall(calls = 40, warmup = 5)(() => left.set(1))
+      }
+      val measured = (bytesAfterId(-120), bytesAfterId(1000000))
+      owner.killSubscriptions()
+      measured
+    }
+    withClue(s"$smallIds bytes per event with small ids, $largeIds with large ones: ") {
+      (largeIds <= smallIds) shouldBe true
     }
   }
 

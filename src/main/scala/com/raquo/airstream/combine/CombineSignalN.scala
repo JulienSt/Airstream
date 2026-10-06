@@ -24,7 +24,7 @@ class CombineSignalN[A, Out](
   override protected val parentObservers: JsArray[InternalParentObserver[?]] = {
     parents.mapWithIndex { (parent, ix) =>
       InternalParentObserver.fromTry[A](parent, (_, trx) => {
-        _parentLastUpdateIds.update(ix, Protected.lastUpdateId(parent)) // #TODO[Test] Note 100% sure that we need to be doing this. No test catches the difference right now.
+        _parentLastUpdateIds.record(ix, Protected.lastUpdateId(parent)) // #TODO[Test] Note 100% sure that we need to be doing this. No test catches the difference right now.
         onInputsReady(trx)
       })
     }

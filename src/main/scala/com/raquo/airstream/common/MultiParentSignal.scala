@@ -1,7 +1,7 @@
 package com.raquo.airstream.common
 
 import com.raquo.airstream.core.{Protected, Signal, WritableSignal}
-import com.raquo.airstream.platform.JsArray
+import com.raquo.airstream.platform.{JsArray, UpdateIdSlots}
 
 /** A simple signal that has multiple parents. */
 trait MultiParentSignal[I, O] extends WritableSignal[O] {
@@ -9,7 +9,12 @@ trait MultiParentSignal[I, O] extends WritableSignal[O] {
   /** This array is read-only, never update it. */
   protected val parents: JsArray[Signal[I]]
 
-  protected lazy val _parentLastUpdateIds: JsArray[Int] = parents.map(Protected.lastUpdateId(_))
+  /** The update id last seen from each parent, by the parent's index; see [[UpdateIdSlots]] for why it is unboxed. */
+  protected[airstream] lazy val _parentLastUpdateIds: UpdateIdSlots = {
+    val slots = UpdateIdSlots.sized(parents.length)
+    parents.forEachWithIndex((parent, ix) => slots.record(ix, Protected.lastUpdateId(parent)))
+    slots
+  }
 
   override protected def onWillStart(): Unit = {
     parents.forEach(Protected.maybeWillStart(_))
@@ -24,9 +29,9 @@ trait MultiParentSignal[I, O] extends WritableSignal[O] {
     var parentHasUpdated = false
     parents.forEachWithIndex { (parent, ix) =>
       val newLastUpdateId = Protected.lastUpdateId(parent)
-      val lastSeenParentUpdateId = _parentLastUpdateIds(ix)
+      val lastSeenParentUpdateId = _parentLastUpdateIds.seen(ix)
       if (newLastUpdateId != lastSeenParentUpdateId) {
-        _parentLastUpdateIds.update(ix, newLastUpdateId)
+        _parentLastUpdateIds.record(ix, newLastUpdateId)
         parentHasUpdated = true
       }
     }
