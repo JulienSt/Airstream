@@ -54,4 +54,38 @@ class FlowPublisherHandshakeSpec extends UnitSpec {
     publisher.subscribers(1).onNext(2)
     seen.toList shouldBe List(2)
   }
+
+  it("leaves a subscription its publisher completed to the publisher: stopping afterwards cancels nothing") {
+    val owner = new TestableOwner
+    val publisher = new HeldPublisher
+    val subscription = EventStream.fromPublisher(publisher).foreach(_ => ())(owner)
+    val handle = new Handle
+    publisher.subscribers.head.onSubscribe(handle)
+    publisher.subscribers.head.onComplete()
+    subscription.kill()
+    handle.cancelled shouldBe 0
+  }
+
+  it("delivers what a request emits synchronously inside the start, and cancels that subscription exactly once on stop") {
+    val owner = new TestableOwner
+    val handle = new Handle
+    val publisher = new Flow.Publisher[Int] {
+      def subscribe(subscriber: Flow.Subscriber[? >: Int]): Unit = {
+        subscriber.onSubscribe(new Flow.Subscription {
+          def request(n: Long): Unit = {
+            handle.request(n)
+            subscriber.onNext(1)
+            subscriber.onNext(2)
+          }
+          def cancel(): Unit = handle.cancel()
+        })
+      }
+    }
+    val seen = mutable.Buffer[Int]()
+    val subscription = EventStream.fromPublisher(publisher).foreach(seen += _)(owner)
+    seen.toList shouldBe List(1, 2)
+    subscription.kill()
+    handle.cancelled shouldBe 1
+    handle.requested shouldBe Long.MaxValue
+  }
 }

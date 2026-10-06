@@ -40,7 +40,7 @@ object FlowPublisherStream {
 }
 
 /** The subscriber of one stream lifetime. Its state moves from waiting for `onSubscribe`, to holding the subscription, to
-  * closed; each move is one atomic step, so `onSubscribe` on a publisher thread and `close` in the stream's runtime cannot
+  * closed, with a detour through terminated when the publisher ends the subscription first; each move is one atomic step, so `onSubscribe` on a publisher thread and `close` in the stream's runtime cannot
   * both believe they own the subscription.
   */
 private[javaflow] final class PublisherEndpoint[A](
@@ -65,7 +65,10 @@ private[javaflow] final class PublisherEndpoint[A](
   // the stop that ends it, never on the publisher's thread.
   override def onNext(value: A): Unit = runtime.deliver(forwardValue(value))
 
-  override def onError(err: Throwable): Unit = runtime.deliver(forwardError(err))
+  override def onError(err: Throwable): Unit = {
+    terminate()
+    runtime.deliver(forwardError(err))
+  }
 
   private def forwardValue(value: A): Unit = {
     if (isOpen) {
@@ -82,9 +85,20 @@ private[javaflow] final class PublisherEndpoint[A](
   /** True until this lifetime is closed. */
   private def isOpen: Boolean = state.get ne PublisherEndpoint.Closed
 
-  override def onComplete(): Unit = ()
+  override def onComplete(): Unit = terminate()
 
-  /** End this lifetime: cancel the subscription when it already arrived, or make a later `onSubscribe` cancel it. */
+  /** The publisher ended the subscription itself: from now on there is nothing for this lifetime to cancel. */
+  @scala.annotation.tailrec
+  private def terminate(): Unit = {
+    val current = state.get
+    if ((current ne PublisherEndpoint.Closed) && !state.compareAndSet(current, PublisherEndpoint.Terminated)) {
+      terminate()
+    }
+  }
+
+  /** End this lifetime: cancel the subscription when it already arrived and the publisher has not ended it, or make a later
+    * `onSubscribe` cancel it.
+    */
   def close(): Unit = {
     state.getAndSet(PublisherEndpoint.Closed) match {
       case subscription: Flow.Subscription => subscription.cancel()
@@ -97,6 +111,9 @@ private[javaflow] object PublisherEndpoint {
 
   /** Before `onSubscribe`. */
   val Waiting: AnyRef = new Object
+
+  /** After the publisher completed or failed the subscription. */
+  val Terminated: AnyRef = new Object
 
   /** After `close`. */
   val Closed: AnyRef = new Object
