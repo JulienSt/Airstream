@@ -302,6 +302,20 @@ final class Runtime private (
     }
   }
 
+  /** Report a managed task's delivered result to the trace, when one is installed. */
+  private[airstream] def traceTaskDelivered(taskId: Long): Unit = {
+    if (sink ne null) {
+      sink.taskDelivered(this, taskId)
+    }
+  }
+
+  /** Report a managed task's suppressed result to the trace, when one is installed. */
+  private[airstream] def traceTaskSuppressed(taskId: Long): Unit = {
+    if (sink ne null) {
+      sink.taskSuppressed(this, taskId)
+    }
+  }
+
   /** Report a bridge message applied in this runtime to the trace, when one is installed. */
   private[airstream] def traceBridgeMessageDelivered(sequence: Long): Unit = {
     if (sink ne null) {

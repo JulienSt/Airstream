@@ -94,4 +94,20 @@ class TaskScopeSpec extends UnitSpec {
     seen.toList shouldBe Nil
     task.outcome.value shouldBe Some(Success(TaskOutcome.Rejected(refusal)))
   }
+
+  it("reports a delivered and a suppressed completion to the runtime's trace with the task's id") {
+    val runtime = Runtime.confined()
+    val traced = mutable.Buffer[String]()
+    runtime.traceTo(new RuntimeTrace {
+      override def taskDelivered(runtime: Runtime, taskId: Long): Unit = traced += s"delivered $taskId"
+      override def taskSuppressed(runtime: Runtime, taskId: Long): Unit = traced += s"suppressed $taskId"
+    })
+    val executor = new PumpedExecutor
+    val scope = runtime.run(runtime.taskScope())
+    val first = runtime.run(scope.launch(executor)(_ => 1)(_ => ()))
+    runtime.run(scope.restart())
+    val second = runtime.run(scope.launch(executor)(_ => 2)(_ => ()))
+    executor.runAll()
+    traced.toList shouldBe List(s"suppressed ${first.id}", s"delivered ${second.id}")
+  }
 }

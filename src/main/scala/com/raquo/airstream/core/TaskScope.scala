@@ -88,6 +88,7 @@ final class TaskScope private[airstream] (runtime: Runtime) {
     receipt.accepted.value.flatMap(_.failed.toOption).foreach { rejection =>
       if (runtime.isShutDown) {
         // The runtime closed on purpose and its close closed this scope: a late result is suppressed.
+        runtime.traceTaskSuppressed(task.id)
         task.settle(TaskOutcome.Suppressed)
       } else {
         rejectResult(task, result, rejection)
@@ -110,6 +111,7 @@ final class TaskScope private[airstream] (runtime: Runtime) {
   private def applyResult[A](task: ManagedTask, launchedIn: Long, result: Try[A], deliver: Try[A] => Unit): Unit = {
     if (open && launchedIn == generation) {
       forget(task)
+      runtime.traceTaskDelivered(task.id)
       task.settle(result match {
         case Success(_) => TaskOutcome.Delivered
         case Failure(err) => TaskOutcome.Failed(err)
@@ -120,6 +122,7 @@ final class TaskScope private[airstream] (runtime: Runtime) {
         case NonFatal(err) => runtime.sendUnhandledError(err)
       }
     } else {
+      runtime.traceTaskSuppressed(task.id)
       task.settle(TaskOutcome.Suppressed)
     }
   }

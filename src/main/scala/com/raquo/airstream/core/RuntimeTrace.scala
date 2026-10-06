@@ -2,7 +2,8 @@ package com.raquo.airstream.core
 
 /** The observation points a runtime reports to a test: the permit changing hands, the context
   * being restored on exit, turns starting and completing, transactions being created, observer removals being requested
-  * and applied, and the runtime failing.
+  * and applied, managed-task results delivered or suppressed, bridge messages applied, a close cutting admission off and
+  * finishing, and the runtime failing.
   *
   * A runtime reports to one trace installed with `Runtime.traceTo`, or to none, which costs the hot path a null check per
   * event and nothing else. Every method does nothing by default so a test overrides only what it reads. A trace is
@@ -34,6 +35,12 @@ trait RuntimeTrace {
 
   /** An external observer was removed from its observable. */
   def removalApplied(runtime: Runtime, observer: Observer[?]): Unit = ()
+
+  /** A managed task's result reached its `deliver` callback in `runtime`. */
+  def taskDelivered(runtime: Runtime, taskId: Long): Unit = ()
+
+  /** A managed task's result was suppressed in `runtime`: its scope moved on or closed, or the runtime closed. */
+  def taskSuppressed(runtime: Runtime, taskId: Long): Unit = ()
 
   /** A bridge applied its message `sequence` in `runtime`, the bridge's target. */
   def bridgeMessageDelivered(runtime: Runtime, sequence: Long): Unit = ()
