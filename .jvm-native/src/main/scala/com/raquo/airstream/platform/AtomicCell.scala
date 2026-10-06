@@ -20,4 +20,7 @@ final class AtomicCell[A <: AnyRef](initial: A) {
 
   /** Replace the value when it still is `expected`; false when another thread changed it first. */
   def compareAndSet(expected: A, next: A): Boolean = ref.compareAndSet(expected, next)
+
+  /** Replace the value and return the one it replaced, in one atomic step: exactly one caller sees each value leave. */
+  def getAndSet(next: A): A = ref.getAndSet(next)
 }

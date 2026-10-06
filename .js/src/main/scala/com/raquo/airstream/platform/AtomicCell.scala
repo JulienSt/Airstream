@@ -26,4 +26,11 @@ final class AtomicCell[A <: AnyRef](initial: A) {
       false
     }
   }
+
+  /** Replace the value and return the one it replaced. */
+  def getAndSet(next: A): A = {
+    val previous = value
+    value = next
+    previous
+  }
 }
