@@ -6,7 +6,9 @@ package com.raquo.airstream.platform
   * the runtime it belongs to without being handed it as an argument. Thread-local storage is the natural carrier: the
   * value is meaningful only on the thread that entered, and must never leak to a worker that happens to run next.
   *
-  * The slot is cleared with `remove` rather than set to null so that a pool thread does not keep an empty entry alive.
+  * The slot is cleared by setting it to null, not with `remove`: a removed entry is allocated again by the next `set`,
+  * which made every root entry of a runtime allocate (`RootEntryAllocationSpec`). What a thread keeps is one
+  * entry holding null for this one slot, which no runtime or value is reachable from.
   */
 private[airstream] final class ThreadSlot[A <: AnyRef] {
 
@@ -16,11 +18,5 @@ private[airstream] final class ThreadSlot[A <: AnyRef] {
   def get: A = slot.get()
 
   /** Install `value` on the current thread; null clears the slot. */
-  def set(value: A): Unit = {
-    if (value eq null) {
-      slot.remove()
-    } else {
-      slot.set(value)
-    }
-  }
+  def set(value: A): Unit = slot.set(value)
 }
