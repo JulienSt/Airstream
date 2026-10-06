@@ -4,7 +4,7 @@ import com.raquo.airstream.UnitSpec
 
 import scala.collection.mutable
 import scala.concurrent.ExecutionContext
-import scala.util.{Success, Try}
+import scala.util.{Failure, Success, Try}
 
 /** Managed tasks on every platform, driven by an executor the spec pumps by hand: the result of a
   * task comes back through the runtime, where the scope decides whether it is still wanted, and every task settles with
@@ -69,5 +69,29 @@ class TaskScopeSpec extends UnitSpec {
     seen.toList shouldBe Nil
     inFlight.outcome.value shouldBe Some(Success(TaskOutcome.Suppressed))
     late.outcome.value.flatMap(_.toOption).exists(_.isInstanceOf[TaskOutcome.Rejected]) shouldBe true
+  }
+
+  it("delivers a failed computation's error and settles the task as failed, distinct from a delivered value") {
+    val runtime = Runtime.confined()
+    val executor = new PumpedExecutor
+    val boom = new IllegalStateException("task failed")
+    val seen = mutable.Buffer[Try[Int]]()
+    val task = runtime.run(runtime.taskScope().launch[Int](executor)(_ => throw boom)(seen += _))
+    executor.runAll()
+    seen.toList shouldBe List(Failure(boom))
+    task.outcome.value shouldBe Some(Success(TaskOutcome.Failed(boom)))
+  }
+
+  it("settles a task the executor refuses as rejected, with the executor's exception, and runs nothing") {
+    val runtime = Runtime.confined()
+    val refusal = new IllegalStateException("executor is full")
+    val refusing = new ExecutionContext {
+      override def execute(runnable: Runnable): Unit = throw refusal
+      override def reportFailure(cause: Throwable): Unit = throw cause
+    }
+    val seen = mutable.Buffer[Try[Int]]()
+    val task = runtime.run(runtime.taskScope().launch(refusing)(_ => 1)(seen += _))
+    seen.toList shouldBe Nil
+    task.outcome.value shouldBe Some(Success(TaskOutcome.Rejected(refusal)))
   }
 }
