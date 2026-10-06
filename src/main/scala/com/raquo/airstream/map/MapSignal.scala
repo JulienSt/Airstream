@@ -3,9 +3,9 @@ package com.raquo.airstream.map
 import com.raquo.airstream.common.SingleParentSignal
 import com.raquo.airstream.core.{Protected, Signal, Transaction}
 import com.raquo.airstream.core.AirstreamError.{ErrorHandlingError, InitialValueError}
+import com.raquo.airstream.util.projectCatching
 
 import scala.util.{Failure, Success, Try}
-import scala.util.control.NonFatal
 
 // @TODO[Elegance] Is this right that we shoved .recover into Map observables? Maybe it deserves its own class? But it's so many classes...
 
@@ -34,7 +34,7 @@ class MapSignal[I, O](
     super.onTry(nextParentValue, transaction)
     nextParentValue match {
       case Success(parentValue) =>
-        fireTry(projected(parentValue), transaction)
+        fireTry(projectCatching(project, parentValue), transaction)
       case Failure(nextError) =>
         recover match {
           case None =>
@@ -56,17 +56,6 @@ class MapSignal[I, O](
                 ()
             }
         }
-    }
-  }
-
-  /** `project` applied to the parent's value, its non-fatal exception caught exactly as `Try.map` catches it, written out
-    * because `Try.map` hands `Try.apply` a closure over the function and the value on every event.
-    */
-  private def projected(parentValue: I): Try[O] = {
-    try {
-      Success(project(parentValue))
-    } catch {
-      case NonFatal(err) => Failure(err)
     }
   }
 

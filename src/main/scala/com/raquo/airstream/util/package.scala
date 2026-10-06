@@ -2,7 +2,8 @@ package com.raquo.airstream
 
 import com.raquo.airstream.platform.JsSet
 
-import scala.util.{Failure, Try}
+import scala.util.{Failure, Success, Try}
+import scala.util.control.NonFatal
 
 package object util {
 
@@ -40,6 +41,17 @@ package object util {
       v
     } catch {
       case err: Throwable => Failure(err)
+    }
+  }
+
+  /** `project` applied to `value`, its non-fatal exception caught exactly as `Try.map` catches it. Written out for the map
+    * nodes, which project once per event: `Try.map` hands `Try.apply` a closure over the function and the value each time.
+    */
+  private[airstream] def projectCatching[A, B](project: A => B, value: A): Try[B] = {
+    try {
+      Success(project(value))
+    } catch {
+      case NonFatal(err) => Failure(err)
     }
   }
 }
