@@ -75,67 +75,29 @@ class AjaxStream(
     // Note: XMLHttpRequest is a valid target for native JS addEventListener, which is a better API,
     // but that pattern isn't supported on XMLHttpRequest by all browsers (e.g. IE11 doesn't work).
 
-    request.onload = (_: dom.Event) => {
-      if (maybePendingRequest.contains(request)) {
-        maybePendingRequest = js.undefined
-        val status = request.status
-        if (isStatusCodeSuccess(status))
-          Transaction(runtime)(fireValue(request, _))
-        else
-          Transaction(runtime)(fireError(AjaxStatusError(request, status, s"Ajax request failed: $status ${request.statusText}"), _))
-      }
-    }
+    // The request's callbacks run from the event loop, outside every turn: each occurrence is delivered through the
+    // runtime, and whether its request is still the pending one is decided there.
 
-    request.onerror = (_: dom.Event) => {
-      if (maybePendingRequest.contains(request)) {
-        maybePendingRequest = js.undefined
+    request.onload = (_: dom.Event) => runtime.deliver(onLoad(request))
 
-        // @TODO I can't figure out how to get a detailed error message in this case.
-        //  - `ev` is not actually a dom.ErrorEvent, but a useless dom.ProgressEvent
-        //  - Reasons could be network, DNS, CORS, etc.
+    request.onerror = (_: dom.Event) => runtime.deliver(onNetworkError(request))
 
-        Transaction(runtime)(fireError(AjaxNetworkError(request, s"Ajax request failed: unknown network reason."), _))
-      }
-    }
+    request.onabort = (_: js.Any) => runtime.deliver(onAbort(request))
 
-    request.onabort = (_: js.Any) => {
-      if (maybePendingRequest.contains(request)) {
-        maybePendingRequest = js.undefined
-        Transaction(runtime)(fireError(AjaxAbort(request), _))
-      }
-    }
-
-    request.ontimeout = (_: dom.Event) => {
-      if (maybePendingRequest.contains(request)) {
-        maybePendingRequest = js.undefined
-        Transaction(runtime)(fireError(AjaxTimeout(request), _))
-      }
-    }
+    request.ontimeout = (_: dom.Event) => runtime.deliver(onTimeout(request))
 
     // The following observers are optional.
 
     if (progressObserver != Observer.empty) {
-      request.onprogress = ev => {
-        if (maybePendingRequest.contains(request)) {
-          progressObserver.onNext((request, ev))
-        }
-      }
+      request.onprogress = ev => runtime.deliver(notifyWhilePending(request, progressObserver, (request, ev)))
     }
 
     if (uploadProgressObserver != Observer.empty) {
-      request.upload.onprogress = ev => {
-        if (maybePendingRequest.contains(request)) {
-          uploadProgressObserver.onNext((request, ev))
-        }
-      }
+      request.upload.onprogress = ev => runtime.deliver(notifyWhilePending(request, uploadProgressObserver, (request, ev)))
     }
 
     if (readyStateChangeObserver != Observer.empty) {
-      request.onreadystatechange = (_: dom.Event) => {
-        if (maybePendingRequest.contains(request)) {
-          readyStateChangeObserver.onNext(request)
-        }
-      }
+      request.onreadystatechange = (_: dom.Event) => runtime.deliver(notifyWhilePending(request, readyStateChangeObserver, request))
     }
 
     if (requestObserver != Observer.empty) {
@@ -151,6 +113,53 @@ class AjaxStream(
   override protected def onStop(): Unit = {
     maybePendingRequest = js.undefined
     super.onStop()
+  }
+
+  /** True when `request` is the one this stream waits for, and it stops waiting for it; runs inside the runtime. */
+  private def settle(request: dom.XMLHttpRequest): Boolean = {
+    val pending = maybePendingRequest.contains(request)
+    if (pending) {
+      maybePendingRequest = js.undefined
+    }
+    pending
+  }
+
+  private def onLoad(request: dom.XMLHttpRequest): Unit = {
+    if (settle(request)) {
+      val status = request.status
+      if (isStatusCodeSuccess(status))
+        Transaction(runtime)(fireValue(request, _))
+      else
+        Transaction(runtime)(fireError(AjaxStatusError(request, status, s"Ajax request failed: $status ${request.statusText}"), _))
+    }
+  }
+
+  private def onNetworkError(request: dom.XMLHttpRequest): Unit = {
+    if (settle(request)) {
+      // @TODO I can't figure out how to get a detailed error message in this case.
+      //  - `ev` is not actually a dom.ErrorEvent, but a useless dom.ProgressEvent
+      //  - Reasons could be network, DNS, CORS, etc.
+      Transaction(runtime)(fireError(AjaxNetworkError(request, s"Ajax request failed: unknown network reason."), _))
+    }
+  }
+
+  private def onAbort(request: dom.XMLHttpRequest): Unit = {
+    if (settle(request)) {
+      Transaction(runtime)(fireError(AjaxAbort(request), _))
+    }
+  }
+
+  private def onTimeout(request: dom.XMLHttpRequest): Unit = {
+    if (settle(request)) {
+      Transaction(runtime)(fireError(AjaxTimeout(request), _))
+    }
+  }
+
+  /** Pass a progress notification on while `request` is still pending; runs inside the runtime. */
+  private def notifyWhilePending[E](request: dom.XMLHttpRequest, observer: Observer[E], event: E): Unit = {
+    if (maybePendingRequest.contains(request)) {
+      observer.onNext(event)
+    }
   }
 }
 

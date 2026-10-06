@@ -36,4 +36,18 @@ class JsHostIngressSpec extends AsyncUnitSpec {
       seen.toList shouldBe List(7)
     }
   }
+
+  it("delivers an XMLHttpRequest failure into a scheduled runtime in a turn of that runtime") {
+    val runtime = Runtime.scheduled(executionContext)
+    val seen = mutable.Buffer[String]()
+    runtime.submit {
+      AjaxStream
+        .get("http://127.0.0.1:9/unreachable")
+        .recoverToTry
+        .foreach(result => seen += result.fold(_.getClass.getSimpleName, _ => "loaded"))(new ManualOwner)
+    }
+    delay(500) {
+      seen.toList shouldBe List("AjaxNetworkError")
+    }
+  }
 }
