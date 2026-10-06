@@ -78,7 +78,8 @@ final class Runtime private (
   }
 
   private def enter[A](body: => A): A = {
-    val active = Runtime.context.get
+    val context = Runtime.context.cell
+    val active = context.value
     if (active ne null) {
       // Checked before the permit so that a runtime never waits on, or takes, another runtime's permit from inside a turn.
       throw CrossRuntimeAccess(active = active, target = this)
@@ -86,19 +87,21 @@ final class Runtime private (
     if (!permit.acquire()) {
       throw entryRejection
     }
-    entered(body)
+    entered(context, body)
   }
 
-  /** Run `body` with the permit just acquired by the calling thread: install the context, run, restore both on every exit. */
-  private def entered[A](body: => A): A = {
-    Runtime.context.set(this)
+  /** Run `body` with the permit just acquired by the calling thread: install the context, run, restore both on every exit.
+    * The calling thread's context cell is looked up once by the caller and written directly here.
+    */
+  private def entered[A](context: ThreadSlot.Cell[Runtime], body: => A): A = {
+    context.value = this
     if (sink ne null) {
       sink.permitAcquired(this)
     }
     try {
       body
     } finally {
-      Runtime.context.set(null)
+      context.value = null
       permit.release()
       if (sink ne null) {
         sink.permitReleased(this)
@@ -137,7 +140,7 @@ final class Runtime private (
       } else if (!permit.acquire()) {
         refuseDelivery(entryRejection)
       } else {
-        entered(body)
+        entered(Runtime.context.cell, body)
       }
     }
   }
@@ -389,7 +392,7 @@ final class Runtime private (
           val rejected = SubmissionRejected(this, cause.getMessage)
           new Receipt(id, Future.failed(rejected), Future.failed(rejected))
         case None =>
-          entered(finishDirectClose())
+          entered(Runtime.context.cell, finishDirectClose())
           new Receipt(id, Future.unit, Future.unit)
       }
     }

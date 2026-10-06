@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicReference
   * Reentrancy needs no counter here: the runtime checks `isHeldByCurrentThread` first and runs a nested body directly,
   * so only the outermost entry acquires and releases.
   */
-private[airstream] final class RuntimePermit private (bound: Thread, admitsEntry: Boolean) {
+final private[airstream] class RuntimePermit private (bound: Thread, admitsEntry: Boolean) {
 
   private val holder: AtomicReference[Thread] = new AtomicReference[Thread](null)
 
@@ -62,8 +62,11 @@ private[airstream] final class RuntimePermit private (bound: Thread, admitsEntry
     retired = true
   }
 
-  /** Give the permit back. Only the holder calls this, so a plain volatile write suffices. */
-  def release(): Unit = holder.set(null)
+  /** Give the permit back. Only the holder calls this, so a release store suffices: everything the holder did before it is
+    * visible to the next thread whose compare-and-set takes the permit, and to any thread that learns of the release
+    * through a later synchronising action of the holder (a settled receipt). No full fence is needed on the hot path.
+    */
+  def release(): Unit = holder.lazySet(null)
 
   /** The name of the thread the permit is bound to, when it is bound. */
   def boundThreadName: Option[String] = Option(bound).map(_.getName)
