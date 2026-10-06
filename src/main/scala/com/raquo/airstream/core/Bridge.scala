@@ -29,7 +29,7 @@ import scala.util.control.NonFatal
   *   - **Closing.** `closeTarget()` acknowledges once no new target delivery can start; `close()` additionally detaches
   *     the source endpoint and releases both endpoints. Neither waits on one runtime from inside the other.
   */
-sealed abstract class Bridge private[core] (link: BridgeLink[?]) {
+sealed abstract class Bridge private[core] (private[core] val link: BridgeLink[?]) {
 
   /** Close the target endpoint: its receipt completes in a target turn after which no message is applied any more. The
     * source endpoint stays attached until `close`, so messages may still be sent and are dropped at the target.
@@ -122,7 +122,7 @@ private[core] final class BridgeLink[A] private (
   }
 
   /** In a target turn: apply the message when it is the next one, buffer it when it arrived early. */
-  private def receive(sequence: Long, value: Try[A]): Unit = {
+  private[core] def receive(sequence: Long, value: Try[A]): Unit = {
     if (!targetClosed.get) {
       early.update(sequence, value)
       applyInOrder()

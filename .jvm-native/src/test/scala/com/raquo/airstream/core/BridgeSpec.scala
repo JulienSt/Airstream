@@ -4,9 +4,11 @@ import com.raquo.airstream.UnitSpec
 import com.raquo.airstream.eventbus.EventBus
 import com.raquo.airstream.fixtures.ThreadPool
 import com.raquo.airstream.ownership.ManualOwner
+import com.raquo.airstream.state.Var
 
 import java.util.concurrent.atomic.AtomicReference
 import scala.concurrent.duration._
+import scala.util.Success
 
 /** Bridges between runtimes on real threads: accepted source order, new target
   * transactions, the snapshot cut of a signal bridge, and the two closing acknowledgements with no endpoint left behind.
@@ -43,6 +45,43 @@ class BridgeSpec extends UnitSpec {
       bridge.close().awaitCompleted(timeout)
       seen.get.map(_._1) shouldBe (1 to 20).toVector
       seen.get.map(_._2).toSet.subsetOf(targetPool.threadNames) shouldBe true
+    }
+  }
+
+  it("starts the target at its explicit initial value, then applies the snapshot at the cut and every later update once, in order") {
+    withRuntimes { (a, b, _) =>
+      val source = inTurn(a)(Var(0))
+      a.submit(source.set(1)).awaitCompleted(timeout)
+      val target = inTurn(b)(Var(-1))
+      val seen = new AtomicReference(Vector.empty[Int])
+      inTurn(b)(target.signal.foreach(value => seen.updateAndGet(_ :+ value))(new ManualOwner))
+      val bridge = inTurn(a)(SignalBridge(source.signal, target))
+      (2 to 20).foreach(value => a.submit(source.set(value)))
+      bridge.close().awaitCompleted(timeout)
+      seen.get shouldBe (-1 +: (1 to 20).toVector)
+      inTurn(b)(target.now()) shouldBe 20
+    }
+  }
+
+  it("buffers a message that arrives before its predecessor and applies both in sequence order") {
+    withRuntimes { (a, b, _) =>
+      val source = inTurn(a)(Var(0))
+      val target = inTurn(b)(Var(-1))
+      val seen = new AtomicReference(Vector.empty[Int])
+      inTurn(b)(target.signal.foreach(value => seen.updateAndGet(_ :+ value))(new ManualOwner))
+      val bridge = inTurn(a)(SignalBridge(source.signal, target))
+      bridge.closeTarget().awaitCompleted(timeout)
+      seen.get shouldBe Vector(-1, 0)
+      // A second link into a fresh target, driven by hand: message 2 arrives before message 1.
+      val reordered = inTurn(b)(Var(-1))
+      val reorderedSeen = new AtomicReference(Vector.empty[Int])
+      inTurn(b)(reordered.signal.foreach(value => reorderedSeen.updateAndGet(_ :+ value))(new ManualOwner))
+      val link = inTurn(a)(SignalBridge(source.signal, reordered)).link.asInstanceOf[BridgeLink[Int]]
+      inTurn(b) {
+        link.receive(2, Success(30))
+        link.receive(1, Success(20))
+      }
+      reorderedSeen.get shouldBe Vector(-1, 0, 20, 30)
     }
   }
 }
