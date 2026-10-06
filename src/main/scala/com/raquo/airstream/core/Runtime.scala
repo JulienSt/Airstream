@@ -307,6 +307,14 @@ final class Runtime private (
     }
   }
 
+  /** A new [[TaskScope]] whose results are delivered into this runtime. */
+  def taskScope(): TaskScope = run(new TaskScope(this))
+
+  /** Ids of the managed tasks launched in this runtime's scopes; 64-bit, never reused. */
+  private val taskIds: AtomicCounter = new AtomicCounter
+
+  private[airstream] def nextTaskId(): Long = taskIds.incrementAndGet()
+
   /** The transaction stack and child queues of this runtime. Touched only under the permit. */
   private[airstream] val transactions: TransactionEngine = new TransactionEngine(this)
 
