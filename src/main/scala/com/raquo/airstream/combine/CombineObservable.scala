@@ -66,11 +66,12 @@ object CombineObservable {
   }
 
   def jsArrayCombinator[A, B](trys: JsArray[Try[A]], combinator: JsArray[A] => B): Try[B] = {
+    // An index loop, not `forEach`: a closure capturing the flag would be two objects per combination.
     var allSuccess: Boolean = true
-    trys.forEach { t =>
-      if (t.isFailure) {
-        allSuccess = false
-      }
+    var index = 0
+    while (allSuccess && index < trys.length) {
+      allSuccess = trys(index).isSuccess
+      index += 1
     }
     if (allSuccess) {
       val values = trys.map(_.get)

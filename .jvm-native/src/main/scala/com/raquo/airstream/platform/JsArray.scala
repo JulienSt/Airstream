@@ -108,7 +108,17 @@ final class JsArray[A] private (private val underlying: mutable.ArrayBuffer[A]) 
     * @return
     *   a new array holding the results
     */
-  def map[B](transform: A => B): JsArray[B] = new JsArray(underlying.map(transform))
+  def map[B](transform: A => B): JsArray[B] = {
+    // Sized once and filled in place: the collection's own `map` grows a builder and copies, and a combine node maps
+    // its parents' values per event.
+    val result = new mutable.ArrayBuffer[B](underlying.length)
+    var index = 0
+    while (index < underlying.length) {
+      result.addOne(transform(underlying(index)))
+      index += 1
+    }
+    new JsArray(result)
+  }
 
   /** Build a new array while exposing each source position to `transform`. */
   def mapWithIndex[B](transform: (A, Int) => B): JsArray[B] = {
