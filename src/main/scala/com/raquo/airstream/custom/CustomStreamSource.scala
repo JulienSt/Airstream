@@ -31,10 +31,18 @@ class CustomStreamSource[A](
     resolveStartCallbacks()
   }
 
+  /** The source's ingress: the fire callbacks may be called from any thread, so the emission is delivered through the
+    * runtime (`Runtime.deliver`). Inside the runtime's turn, which is where a start callback fires
+    * synchronously, it is applied at once; from another thread it reaches a scheduled runtime as a turn of its own.
+    */
+  private def scheduleTransaction(fire: Transaction => Unit): Unit = {
+    runtime.deliver(emitOrCollect(fire))
+  }
+
   /** Inside a shared start, collect the emission for [[resolveStartCallbacks]];
     * otherwise fire it in a new transaction right away, as usual.
     */
-  private def scheduleTransaction(fire: Transaction => Unit): Unit = {
+  private def emitOrCollect(fire: Transaction => Unit): Unit = {
     if (!collectDuringSharedStart(fire)) {
       Transaction(runtime)(fire)
     }
