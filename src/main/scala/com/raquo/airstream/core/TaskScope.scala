@@ -85,11 +85,12 @@ final class TaskScope private[airstream] (runtime: Runtime) {
   private def returnResult[A](task: ManagedTask, launchedIn: Long, result: Try[A], deliver: Try[A] => Unit): Unit = {
     val receipt = runtime.submit(applyResult(task, launchedIn, result, deliver))
     receipt.accepted.value.flatMap(_.failed.toOption).foreach { rejection =>
-      task.settle(TaskOutcome.Rejected(rejection))
-      // The result never reached the graph; a failure it carried must not vanish with it.
+      // The result never reached the graph; a failure it carried must not vanish with it. Reported
+      // before the outcome settles, so whoever waits for the outcome finds the report already made.
       val report = DeliveryRejected(runtime, rejection)
       result.failed.foreach(report.addSuppressed)
       runtime.sendUnhandledError(report)
+      task.settle(TaskOutcome.Rejected(rejection))
     }
   }
 
