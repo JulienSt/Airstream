@@ -84,4 +84,33 @@ class BridgeSpec extends UnitSpec {
       reorderedSeen.get shouldBe Vector(-1, 0, 20, 30)
     }
   }
+
+  it("stops applying messages after the target-close acknowledgement while the source stays attached; the full close detaches it") {
+    withRuntimes { (a, b, _) =>
+      val source = inTurn(a)(Var(0))
+      val target = inTurn(b)(Var(-1))
+      val bridge = inTurn(a)(SignalBridge(source.signal, target))
+      bridge.closeTarget().awaitCompleted(timeout)
+      a.submit(source.set(5)).awaitCompleted(timeout)
+      b.submit(()).awaitCompleted(timeout)
+      inTurn(b)(target.now()) shouldBe 0
+      inTurn(a)(BaseObservable.numAllObservers(source.signal)) shouldBe 1
+      bridge.close().awaitCompleted(timeout)
+      inTurn(a)(BaseObservable.numAllObservers(source.signal)) shouldBe 0
+      a.submit(source.set(6)).awaitCompleted(timeout)
+      b.submit(()).awaitCompleted(timeout)
+      inTurn(b)(target.now()) shouldBe 0
+    }
+  }
+
+  it("rejects a bridge into a direct runtime at creation, before attaching anything to the source") {
+    withRuntimes { (a, _, _) =>
+      val source = inTurn(a)(Var(0))
+      val confined = Runtime.confined()
+      val target = confined.run(Var(-1))
+      val outcome = inTurn(a)(scala.util.Try(SignalBridge(source.signal, target)))
+      outcome.failed.toOption.map(_.getClass) shouldBe Some(classOf[IllegalArgumentException])
+      inTurn(a)(BaseObservable.numAllObservers(source.signal)) shouldBe 0
+    }
+  }
 }
