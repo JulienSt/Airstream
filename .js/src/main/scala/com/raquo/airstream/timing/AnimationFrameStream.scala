@@ -38,11 +38,22 @@ class AnimationFrameStream[I, O](
 
   private var maybeRequestHandle: js.UndefOr[Int] = js.undefined
 
+  /** Which frame request is the current one; a frame delivered for an older request is stale. */
+  private var currentRequest: Int = 0
+
   override protected def onTry(nextValue: Try[I], transaction: Transaction): Unit = {
     maybeRequestHandle.foreach(dom.window.cancelAnimationFrame)
-    maybeRequestHandle = dom.window.requestAnimationFrame { ts =>
+    currentRequest += 1
+    val request = currentRequest
+    // The frame callback runs from the event loop, outside every turn: the frame is delivered through the runtime, and
+    // whether it is still the current request is decided there.
+    maybeRequestHandle = dom.window.requestAnimationFrame(ts => runtime.deliver(onFrame(request, nextValue, ts)))
+  }
+
+  /** Apply a frame inside the runtime, unless a later request or a stop superseded it meanwhile. */
+  private def onFrame(request: Int, nextValue: Try[I], ts: Double): Unit = {
+    if (request == currentRequest) {
       maybeRequestHandle = js.undefined
-      // println(s"> init trx from AnimationFrameStream.onTry($nextValue)")
       Transaction(runtime) { trx =>
         fireTry(nextValue.map(value => project(value, ts)), trx)
       }
@@ -52,6 +63,7 @@ class AnimationFrameStream[I, O](
   override protected def onStop(): Unit = {
     maybeRequestHandle.foreach(dom.window.cancelAnimationFrame)
     maybeRequestHandle = js.undefined
+    currentRequest += 1
     super.onStop()
   }
 }
