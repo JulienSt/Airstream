@@ -27,12 +27,30 @@ class SwitchSignal[A](
   }
 
   private val internalEventObserver: InternalObserver[A] = InternalObserver.fromTry[A](
-    onTry = (nextTry, _) => {
-      // println(s"> init trx from $this SwitchSignal.onValue($nextTry)")
-      innerSignalLastSeenUpdateId = Protected.lastUpdateId(currentSignalTry.get)
-      Transaction(runtime)(fireTry(nextTry, _))
+    onTry = (_, _) => {
+      // println(s"> init trx from $this SwitchSignal.onValue")
+      val innerSignalTry = currentSignalTry
+      Transaction(runtime)(fireLatestInnerValue(innerSignalTry, _))
     }
   )
+
+  /** Emit the inner signal's current value unless this signal has already emitted that update.
+    *
+    * Every inner update is emitted in its own new transaction. A transaction nested inside an earlier one can update
+    * the inner signal again and emit its newer value before that earlier transaction runs. Firing the value captured
+    * when the transaction was scheduled would then leave this signal on a stale value that its inner signal no longer
+    * holds, so the value is read when the transaction runs and an update id that was already emitted is skipped. An
+    * inner signal that was switched away in the meantime is skipped as well: the switch emits its successor's value.
+    */
+  private def fireLatestInnerValue(innerSignalTry: Try[Signal[A]], transaction: Transaction): Unit = {
+    innerSignalTry.foreach { innerSignal =>
+      val updateId = Protected.lastUpdateId(innerSignal)
+      if (isSameSignal(innerSignalTry, currentSignalTry) && updateId != innerSignalLastSeenUpdateId) {
+        innerSignalLastSeenUpdateId = updateId
+        fireTry(innerSignal.tryNow(), transaction)
+      }
+    }
+  }
 
   // #Note this is only used when getting the initial value of this signal
   override protected def currentValueFromParent(): Try[A] = {

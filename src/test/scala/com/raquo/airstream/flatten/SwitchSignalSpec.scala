@@ -705,4 +705,29 @@ class SwitchSignalSpec extends UnitSpec {
     )
     effects.clear()
   }
+
+  it("ends on the inner signal's latest value when a nested transaction updates it before an earlier inner update is fired") {
+
+    implicit val owner: TestableOwner = new TestableOwner
+
+    val effects = mutable.Buffer[Effect[(Int, Int)]]()
+
+    val bus = new EventBus[Int]
+    val stateVar = Var(0)
+    val inner = bus.events.startWith(0).combineWith(stateVar.signal)
+
+    val flat = Val[Signal[(Int, Int)]](inner).flattenSwitch
+
+    flat.foreach(v => effects += Effect("result", v))
+
+    // While the bus event propagates, this observer schedules the Var update before the
+    // combined inner signal resolves, so the inner update (1, 0) is queued behind (1, 10).
+    bus.events.foreach(n => stateVar.set(n * 10))
+
+    effects.clear()
+
+    bus.writer.onNext(1)
+
+    assertEquals(effects.lastOption, Some(Effect("result", (1, 10))))
+  }
 }
