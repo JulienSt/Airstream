@@ -1,6 +1,7 @@
 package com.raquo.airstream.platform
 
 import com.raquo.airstream.core.{Receipt, Runtime}
+import com.raquo.airstream.core.AirstreamError.CrossRuntimeEdge
 
 import scala.collection.mutable
 
@@ -15,7 +16,7 @@ import scala.collection.mutable
   * one runtime never fires another runtime's callbacks, and a due callback runs inside its runtime (`runtime.run`), so
   * readiness only says "now" and the runtime entry is what admits the graph access.
   */
-final class RuntimeTimers(runtime: Runtime) {
+final class RuntimeTimers(private val runtime: Runtime) {
 
   import RuntimeTimers.{IntervalHandle, TimerHandle}
 
@@ -41,14 +42,14 @@ final class RuntimeTimers(runtime: Runtime) {
     *   a handle that cancels it
     */
   def setTimeout(delayMillis: Double)(body: => Unit): TimerHandle =
-    RuntimeTimers.timerHandle(schedule(delayMillis, repeatEvery = None)(body))
+    new TimerHandle(this, schedule(delayMillis, repeatEvery = None)(body))
 
   /** Cancel a scheduled one-shot callback.
     *
     * Accepts a handle that already fired or was already cancelled: a caller usually cannot know which, and making it
     * find out would push the bookkeeping back out to every call site.
     */
-  def clearTimeout(handle: TimerHandle): Unit = cancel(RuntimeTimers.idOf(handle))
+  def clearTimeout(handle: TimerHandle): Unit = cancel(idOf(handle.owner, handle.id))
 
   /** Run `body` repeatedly, no sooner than `intervalMillis` between eligible pumps.
     *
@@ -57,11 +58,23 @@ final class RuntimeTimers(runtime: Runtime) {
     */
   def setInterval(intervalMillis: Double)(body: => Unit): IntervalHandle = {
     val period = math.max(0.0, intervalMillis)
-    RuntimeTimers.intervalHandle(schedule(period, repeatEvery = Some(period))(body))
+    new IntervalHandle(this, schedule(period, repeatEvery = Some(period))(body))
   }
 
   /** Cancel a repeating callback. Accepts a handle that already fired or was already cancelled. */
-  def clearInterval(handle: IntervalHandle): Unit = cancel(RuntimeTimers.idOfInterval(handle))
+  def clearInterval(handle: IntervalHandle): Unit = cancel(idOf(handle.owner, handle.id))
+
+  /** The number a handle has in this runtime's queue; a handle of another runtime's timers is rejected, because
+    * the same number there names a different callback.
+    *
+    * @throws CrossRuntimeEdge when the handle belongs to another runtime
+    */
+  private def idOf(owner: RuntimeTimers, id: Long): Long = {
+    if (owner ne this) {
+      throw CrossRuntimeEdge(Seq(runtime, owner.runtime))
+    }
+    id
+  }
 
   // Scheduling, cancelling and reading the queue enter the runtime: the queue, the clock and the handle counter are
   // runtime state, so a thread the runtime does not admit is rejected before it touches them, and a
@@ -140,17 +153,15 @@ final class RuntimeTimers(runtime: Runtime) {
 
 object RuntimeTimers {
 
-  /** A scheduled one-shot callback that has not fired yet. */
-  opaque type TimerHandle = Long
+  /** A scheduled one-shot callback that has not fired yet: the timers it was filed with and its number there. */
+  final class TimerHandle private[RuntimeTimers] (
+    private[RuntimeTimers] val owner: RuntimeTimers,
+    private[RuntimeTimers] val id: Long
+  )
 
-  /** A scheduled repeating callback that has not been cancelled. */
-  opaque type IntervalHandle = Long
-
-  private def timerHandle(id: Long): TimerHandle = id
-
-  private def intervalHandle(id: Long): IntervalHandle = id
-
-  private def idOf(handle: TimerHandle): Long = handle
-
-  private def idOfInterval(handle: IntervalHandle): Long = handle
+  /** A scheduled repeating callback that has not been cancelled: the timers it was filed with and its number there. */
+  final class IntervalHandle private[RuntimeTimers] (
+    private[RuntimeTimers] val owner: RuntimeTimers,
+    private[RuntimeTimers] val id: Long
+  )
 }
