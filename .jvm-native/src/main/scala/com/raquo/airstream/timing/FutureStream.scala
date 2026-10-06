@@ -11,9 +11,10 @@ import scala.util.{Failure, Success}
   * the native currency and the existing stream is written against one. Outside a JavaScript runtime there is no promise to
   * turn it into, so the future is observed directly — which is simpler, and closer to what the caller wrote.
   *
-  * Whether the callback ever runs is the execution context's business, exactly as it is on the JVM. This stream does not
-  * schedule anything and deliberately owns no thread: Airstream's transaction model assumes one thread owning the graph,
-  * and a stream that fired from a pool would break that assumption from the outside.
+  * Whether the callback ever runs is the execution context's business, exactly as it is on the JVM. This stream owns no
+  * thread and touches nothing on the callback's thread: the completion is handed to the stream's runtime, which applies
+  * it under its permit (`Runtime.deliver`): at once when the callback runs inside the current turn or on a thread that may
+  * enter a direct runtime, as a later turn of a scheduled runtime otherwise.
   *
   * Emits once. Use a signal if the value needs remembering.
   *
@@ -40,13 +41,16 @@ class FutureStream[A](
         shouldSubscribe = false
       }
       isPending = true
-      lazyFuture.onComplete {
-        case Success(nextValue) =>
+      // The callback runs wherever the execution context runs it; everything it does to this stream, the pending flag
+      // included, is delivered through the owning runtime.
+      lazyFuture.onComplete { completed =>
+        runtime.deliver {
           isPending = false
-          Transaction(runtime)(fireValue(nextValue, _))
-        case Failure(nextError) =>
-          isPending = false
-          Transaction(runtime)(fireError(nextError, _))
+          completed match {
+            case Success(nextValue) => Transaction(runtime)(fireValue(nextValue, _))
+            case Failure(nextError) => Transaction(runtime)(fireError(nextError, _))
+          }
+        }
       }
     }
   }

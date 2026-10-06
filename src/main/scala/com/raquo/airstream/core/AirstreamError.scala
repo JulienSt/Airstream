@@ -168,6 +168,19 @@ object AirstreamError {
     override def toString: String = s"RuntimeFailed: ${runtime.displayName}; cause: $cause"
   }
 
+  /** An external completion (a Future or promise result, a timer, a publisher signal, a custom source fired from another
+    * thread, a managed task's result) could not be handed to its runtime: a direct runtime another thread holds or is bound
+    * to, a caller inside another runtime's turn, a full mailbox or a failed runtime. The completion did not touch the graph.
+    * Reported through the runtime's unhandled-error channel because the callback that carried it has no receipt to fail.
+    */
+  case class DeliveryRejected(runtime: Runtime, cause: Throwable)
+  extends AirstreamError(s"Delivery rejected by ${runtime.displayName}: ${getFullMessage(cause)}. The completion was not applied to the graph.") {
+
+    initCause(cause)
+
+    override def toString: String = s"DeliveryRejected: ${runtime.displayName}; cause: $cause"
+  }
+
   /** A turn tried to block on a receipt. Waiting inside a turn holds the runtime's permit while waiting for work that may
     * need it; rejected before blocking. Wait from outside every runtime, or react to the future.
     */

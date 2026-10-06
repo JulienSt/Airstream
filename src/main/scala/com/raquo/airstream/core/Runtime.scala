@@ -1,6 +1,6 @@
 package com.raquo.airstream.core
 
-import com.raquo.airstream.core.AirstreamError.{CrossRuntimeAccess, CrossRuntimeEdge, ForeignThreadEntry, ScheduledRuntimeEntry, SubmissionRejected, WaitInsideTurn}
+import com.raquo.airstream.core.AirstreamError.{CrossRuntimeAccess, CrossRuntimeEdge, DeliveryRejected, ForeignThreadEntry, ScheduledRuntimeEntry, SubmissionRejected, WaitInsideTurn}
 import com.raquo.airstream.platform.{AtomicCounter, DevTools, DiagnosticLevel, DiagnosticSinks, JsArray, RuntimePermit, RuntimeTimers, ThreadSlot}
 
 import scala.concurrent.{ExecutionContext, Future, Promise}
@@ -83,6 +83,11 @@ final class Runtime private (
     if (!permit.acquire()) {
       throw entryRejection
     }
+    entered(body)
+  }
+
+  /** Run `body` with the permit just acquired by the calling thread: install the context, run, restore both on every exit. */
+  private def entered[A](body: => A): A = {
     Runtime.context.set(this)
     if (sink ne null) {
       sink.permitAcquired(this)
@@ -97,6 +102,55 @@ final class Runtime private (
         sink.contextRestored(this)
       }
     }
+  }
+
+  /** Hand an external completion to this runtime: the ingress of every asynchronous adapter.
+    *
+    * A Future or promise callback, a publisher's signal, a custom source's fire from another thread or a timer's readiness
+    * runs wherever its executor, publisher or event loop runs it. `body` is everything that callback does to the graph,
+    * pending flags included, and it runs only under this runtime's permit:
+    *
+    *   - on the permit-holding thread, at once: a callback that an inline execution context or a synchronous source runs
+    *     inside the current turn keeps today's behaviour, and a transaction it creates during a shared start still waits
+    *     for the start to finish;
+    *   - on a scheduled runtime, from any other thread, as a submitted command whose turn runs `body` later; an exception
+    *     `body` throws there goes to this runtime's unhandled-error channel, since nobody holds the command's receipt;
+    *   - on a direct runtime, as an entry on the calling thread when it may take the permit now, exactly like `run`.
+    *
+    * When the runtime cannot take the completion (a direct runtime held by another thread or bound to one, a caller inside
+    * another runtime's turn, a full mailbox, a failed runtime), the callback is not lost silently: `DeliveryRejected` goes to
+    * this runtime's unhandled-error channel, because the callback has no receipt to fail.
+    */
+  private[airstream] def deliver(body: => Unit): Unit = {
+    if (permit.isHeldByCurrentThread) {
+      body
+    } else if (mailbox ne null) {
+      val receipt = mailbox.submit(commandIds.incrementAndGet(), () => deliveredInTurn(body))
+      receipt.accepted.value.flatMap(_.failed.toOption).foreach(refuseDelivery)
+    } else {
+      val active = Runtime.context.get
+      if (active ne null) {
+        refuseDelivery(CrossRuntimeAccess(active = active, target = this))
+      } else if (!permit.acquire()) {
+        refuseDelivery(entryRejection)
+      } else {
+        entered(body)
+      }
+    }
+  }
+
+  /** Run a delivered completion inside its turn; its failure is reported here, because its receipt has no reader. */
+  private def deliveredInTurn(body: => Unit): Unit = {
+    try {
+      body
+    } catch {
+      case NonFatal(err) => sendUnhandledError(err)
+    }
+  }
+
+  /** Report a completion this runtime could not take to its unhandled-error channel, from the delivering thread. */
+  private def refuseDelivery(cause: Throwable): Unit = {
+    sendUnhandledError(DeliveryRejected(this, cause))
   }
 
   /** Why a synchronous entry is refused: a scheduled runtime is entered through `submit`, a direct one belongs to
