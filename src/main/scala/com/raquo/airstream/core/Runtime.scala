@@ -319,6 +319,67 @@ final class Runtime private (
     }
   }
 
+  /** Close this runtime gracefully and return the close's receipt.
+    *
+    *   1. External admission ends at once and atomically: a `submit` either was admitted before the close or is rejected.
+    *   2. Every accepted command still runs, in order, with its synchronous descendants, and settles its receipt.
+    *   3. At one serialized point after them, under the permit, the runtime's cleanup runs once: its task scopes close,
+    *      its pending timers are cancelled and its bridge endpoints are released. A failure there is reported through the
+    *      unhandled-error channel; it does not roll back anything the commands did.
+    *   4. The runtime is `Closed`, and the receipt's `completed` future succeeds.
+    *
+    * Afterwards every submission and every delivery is turned away: a late Future result, timer tick or bridge message is
+    * suppressed without an error, since the runtime ended on purpose. The executor is not touched: a runtime never owns the
+    * executor it was given, so a pool shared with other runtimes stays usable. The default runtime cannot be
+    * closed; its receipt is rejected.
+    */
+  def close(): Receipt = {
+    val id = commandIds.incrementAndGet()
+    if (isDefault) {
+      val rejected = SubmissionRejected(this, "the default runtime cannot be closed")
+      new Receipt(id, Future.failed(rejected), Future.failed(rejected))
+    } else if (mailbox ne null) {
+      new Receipt(id, Future.unit, mailbox.close())
+    } else {
+      ???
+    }
+  }
+
+  /** Run the cleanup of a close, on the drainer's thread, with the permit claimed and the context installed for it and
+    * restored afterwards.
+    *
+    * @throws IllegalStateException when the permit could not be claimed (a dispatcher ran the drain on another thread)
+    */
+  private[airstream] def closeResources(): Unit = {
+    if (!permit.claim()) {
+      throw new IllegalStateException(s"${displayName}: the close ran on a thread that may not take the permit")
+    }
+    Runtime.context.set(this)
+    try {
+      releaseOwned()
+    } finally {
+      Runtime.context.set(null)
+      permit.release()
+    }
+  }
+
+  /** The cleanup itself, under the permit: release what this runtime owns. */
+  private def releaseOwned(): Unit = ()
+
+  /** Report the admission cutoff of a close to the trace, when one is installed. */
+  private[airstream] def traceAdmissionClosed(): Unit = {
+    if (sink ne null) {
+      sink.admissionClosed(this)
+    }
+  }
+
+  /** Report a finished close to the trace, when one is installed. */
+  private[airstream] def traceClosed(): Unit = {
+    if (sink ne null) {
+      sink.runtimeClosed(this)
+    }
+  }
+
   /** A new [[TaskScope]] whose results are delivered into this runtime. */
   def taskScope(): TaskScope = run(new TaskScope(this))
 

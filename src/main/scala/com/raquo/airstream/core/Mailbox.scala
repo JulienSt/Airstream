@@ -4,7 +4,7 @@ import com.raquo.airstream.core.AirstreamError.{RuntimeFailed, SubmissionRejecte
 import com.raquo.airstream.platform.{AtomicCell, AtomicCounter, AtomicFlag, ConcurrentQueue}
 
 import scala.annotation.tailrec
-import scala.concurrent.{ExecutionContext, Promise}
+import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.control.NonFatal
 
 /** The admission and drain protocol of a scheduled runtime.
@@ -23,6 +23,9 @@ import scala.util.control.NonFatal
   *     recheck now does.
   *   - A drain yields the executor after `turnsPerDrain` complete turns by handing itself over as a new task with the
   *     claim kept, so one busy runtime does not hold a pool thread indefinitely and no transaction is ever split.
+  *
+  * A close cuts admission off in the reservation counter, lets the drainer finish every accepted command, and then has the
+  * drainer run the runtime's cleanup in one more serialized step before the runtime is `Closed`.
   *
   * When the executor rejects a drain task, at the first schedule or at a reschedule, the runtime fails:
   * admission closes, every queued receipt settles with `RuntimeFailed`, and a producer that enqueued at the same moment
@@ -48,6 +51,9 @@ private[airstream] final class Mailbox(
   private val drainClaimed: AtomicFlag = new AtomicFlag
 
   private val cause: AtomicCell[Throwable] = new AtomicCell[Throwable](null)
+
+  /** The promise of the close, once one was requested; the first request creates it, later ones share it. */
+  private val closing: AtomicCell[Promise[Unit]] = new AtomicCell[Promise[Unit]](null)
 
   private val drainTask: Runnable = new Runnable {
     override def run(): Unit = drain()
@@ -78,13 +84,18 @@ private[airstream] final class Mailbox(
     new Receipt(id, accepted.future, completed.future)
   }
 
-  /** The admission linearisation point: reserve one slot when the runtime is open and the mailbox has room. */
+  /** The admission linearisation point: reserve one slot when the runtime is open and the mailbox has room. The admission
+    * cutoff of a close is a bit in the same counter, so a reservation and the cutoff are ordered by one compare-and-set: a
+    * reservation that succeeds was admitted before the close, and none succeeds after it.
+    */
   @tailrec private def reserve(): Option[SubmissionRejected] = {
     val current = lifecycle.get
-    if (current ne RuntimeState.Open) {
+    val count = reserved.get
+    if ((count & Mailbox.AdmissionClosed) != 0L) {
+      Some(SubmissionRejected(runtime, "the runtime is closing"))
+    } else if (current ne RuntimeState.Open) {
       Some(SubmissionRejected(runtime, s"the runtime is ${current.toString.toLowerCase}"))
     } else {
-      val count = reserved.get
       if (count >= capacity) {
         Some(SubmissionRejected(runtime, s"the mailbox already holds its capacity of $capacity commands"))
       } else if (reserved.compareAndSet(count, count + 1)) {
@@ -113,11 +124,54 @@ private[airstream] final class Mailbox(
   /** Give the drain claim up. */
   private[airstream] def releaseDrain(): Unit = drainClaimed.set(false)
 
-  /** Close the lost-wake-up window: a command admitted after the empty check gets its drain now. */
+  /** Close the lost-wake-up window: a command admitted after the empty check gets its drain now, and so does a close
+    * requested after it.
+    */
   private[airstream] def recheck(): Unit = {
-    if (!queue.isEmpty) {
+    if (!queue.isEmpty || isReadyToClose) {
       scheduleDrain()
     }
+  }
+
+  /** Request the graceful close: cut admission off, let the drainer finish the accepted commands,
+    * then run the runtime's cleanup in one more serialized step. The future completes when that step is done; it fails
+    * with `RuntimeFailed` when the runtime failed instead. Requesting it again returns the same future.
+    */
+  def close(): Future[Unit] = {
+    val requested = Promise[Unit]()
+    if (closing.compareAndSet(null, requested)) {
+      cutAdmission()
+      if (lifecycle.compareAndSet(RuntimeState.Open, RuntimeState.Closing)) {
+        runtime.traceAdmissionClosed()
+        scheduleDrain()
+      } else {
+        requested.tryFailure(RuntimeFailed(runtime, cause.get))
+      }
+    }
+    closing.get.future
+  }
+
+  /** Set the admission cutoff bit; from now on no reservation succeeds. */
+  @tailrec private def cutAdmission(): Unit = {
+    val count = reserved.get
+    if (!reserved.compareAndSet(count, count | Mailbox.AdmissionClosed)) {
+      cutAdmission()
+    }
+  }
+
+  /** True when the close can finish: requested, nothing queued, and no producer between its reservation and its enqueue. */
+  private def isReadyToClose: Boolean = {
+    (lifecycle.get eq RuntimeState.Closing) && (reserved.get & ~Mailbox.AdmissionClosed) == 0L && queue.isEmpty
+  }
+
+  /** On the drainer, holding the claim: run the runtime's cleanup, move to `Closed`, give the claim up, settle the close. */
+  private def finishClose(): Unit = {
+    runtime.closeResources()
+    lifecycle.compareAndSet(RuntimeState.Closing, RuntimeState.Closed)
+    runtime.traceClosed()
+    releaseDrain()
+    closing.get.trySuccess(())
+    ()
   }
 
   /** Hand a drain to the executor unless one is already claimed. */
@@ -142,7 +196,14 @@ private[airstream] final class Mailbox(
     var running = true
     while (running) {
       val next = takeNext()
-      if (next eq null) {
+      if ((next eq null) && isReadyToClose) {
+        try {
+          finishClose()
+        } catch {
+          case err: Throwable => fail(err)
+        }
+        running = false
+      } else if (next eq null) {
         releaseDrain()
         recheck()
         running = false
@@ -169,8 +230,13 @@ private[airstream] final class Mailbox(
   /** Move the runtime to `Failed` because of `err` and settle every queued receipt; idempotent. */
   private[airstream] def fail(err: Throwable): Unit = {
     cause.compareAndSet(null, err)
-    if (lifecycle.compareAndSet(RuntimeState.Open, RuntimeState.Failed)) {
+    if (lifecycle.compareAndSet(RuntimeState.Open, RuntimeState.Failed) ||
+        lifecycle.compareAndSet(RuntimeState.Closing, RuntimeState.Failed)) {
       runtime.reportFailure(cause.get)
+    }
+    val requested = closing.get
+    if (requested ne null) {
+      requested.tryFailure(RuntimeFailed(runtime, cause.get))
     }
     var next = queue.poll()
     while (next ne null) {
@@ -191,6 +257,9 @@ private[airstream] object Mailbox {
 
   /** One admitted command: its id, what to run, and the promise its turn settles. */
   final class Command(val id: Long, val body: () => Unit, val completed: Promise[Unit])
+
+  /** The admission cutoff bit of the reservation counter: set by a close, it makes every later reservation fail. */
+  val AdmissionClosed: Long = 1L << 62
 
   /** The executor and bounds of a scheduled runtime. */
   final case class Scheduling(executor: ExecutionContext, capacity: Int, turnsPerDrain: Int)

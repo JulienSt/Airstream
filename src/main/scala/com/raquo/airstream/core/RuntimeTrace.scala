@@ -38,6 +38,12 @@ trait RuntimeTrace {
   /** A bridge applied its message `sequence` in `runtime`, the bridge's target. */
   def bridgeMessageDelivered(runtime: Runtime, sequence: Long): Unit = ()
 
+  /** A close cut `runtime`'s admission off; accepted commands still run. */
+  def admissionClosed(runtime: Runtime): Unit = ()
+
+  /** `runtime`'s close finished its cleanup; the runtime is `RuntimeState.Closed`. */
+  def runtimeClosed(runtime: Runtime): Unit = ()
+
   /** `runtime` moved to `RuntimeState.Failed` because of `cause`. */
   def runtimeFailed(runtime: Runtime, cause: Throwable): Unit = ()
 }
