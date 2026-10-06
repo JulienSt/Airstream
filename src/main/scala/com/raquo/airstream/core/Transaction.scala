@@ -23,10 +23,13 @@ import com.raquo.airstream.util.JsPriorityQueue
   * transaction enters that runtime, so a root `Transaction(...)` is a complete turn: it rejects a foreign thread before
   * touching any state, runs the transaction and its descendants, and releases the runtime on return.
   *
+  * The runtime is a constructor argument, not a field: it is needed only to schedule the transaction, which happens once,
+  * in the constructor, and afterwards the transaction is reachable only from the engine of the runtime that scheduled it, so storing it would only make every transaction larger.
+  *
   * @param code Note: Must not throw!
   */
 class Transaction private[airstream] (
-  private[airstream] val runtime: Runtime,
+  runtime: Runtime,
   private[core] var code: Transaction => Any
 ) {
 
@@ -55,10 +58,11 @@ class Transaction private[airstream] (
 
   runtime.schedule(this)
 
-  /** Compute the depth and file this transaction with its runtime: run now as a root, queue as a child, wait for the end of
-    * a shared start, or report the depth limit. Called once, from the constructor, inside the runtime (`Runtime.schedule`).
+  /** Compute the depth and file this transaction with `runtime`: run now as a root, queue as a child, wait for the end of
+    * a shared start, or report the depth limit. Called once, from the constructor, inside the runtime, which hands itself
+    * in (`Runtime.schedule`).
     */
-  private[core] def scheduleInside(): Unit = {
+  private[core] def scheduleInside(runtime: Runtime): Unit = {
     depth = runtime.transactions.depthOfNewTransaction
     runtime.traceTransactionCreated()
     if (depth <= runtime.maxDepth || runtime.maxDepth == -1) {

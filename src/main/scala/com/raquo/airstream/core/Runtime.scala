@@ -110,7 +110,7 @@ final class Runtime private (
     */
   private[airstream] def schedule(transaction: Transaction): Unit = {
     if (permit.isHeldByCurrentThread) {
-      transaction.scheduleInside()
+      transaction.scheduleInside(this)
     } else {
       val context = Runtime.context.cell
       val active = context.value
@@ -122,7 +122,7 @@ final class Runtime private (
       }
       installed(context)
       try {
-        transaction.scheduleInside()
+        transaction.scheduleInside(this)
       } finally {
         exited(context)
       }

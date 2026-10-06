@@ -164,6 +164,17 @@ class FireAllocationSpec extends UnitSpec {
     }
   }
 
+  it("a root transaction allocates only itself: its code, pending queue and depth (24 bytes)") {
+    // The runtime is not stored: it is handed to the scheduling it is needed for, and a transaction is reachable only
+    // from the engine of the runtime that scheduled it.
+    val runtime = Runtime.confined()
+    val code: Transaction => Unit = _ => ()
+    val bytes = bytesPerCall()(() => Transaction(runtime)(code))
+    withClue(s"$bytes bytes per root transaction: ") {
+      (bytes <= 24.0) shouldBe true
+    }
+  }
+
   it("an EventBus writer handed a Try allocates no more than handed the value") {
     val owner = new ManualOwner
     val bus = new com.raquo.airstream.eventbus.EventBus[Int]
