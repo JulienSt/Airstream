@@ -94,19 +94,53 @@ final class Runtime private (
     * The calling thread's context cell is looked up once by the caller and written directly here.
     */
   private def entered[A](context: ThreadSlot.Cell[Runtime], body: => A): A = {
+    installed(context)
+    try {
+      body
+    } finally {
+      exited(context)
+    }
+  }
+
+  /** Schedule `transaction` inside this runtime: the entry of `run`, written out for the one body every root write runs, so
+    * that path allocates no closure and makes no call through a function value.
+    */
+  private[airstream] def schedule(transaction: Transaction): Unit = {
+    if (permit.isHeldByCurrentThread) {
+      transaction.scheduleInside()
+    } else {
+      val context = Runtime.context.cell
+      val active = context.value
+      if (active ne null) {
+        throw CrossRuntimeAccess(active = active, target = this)
+      }
+      if (!permit.acquire()) {
+        throw entryRejection
+      }
+      installed(context)
+      try {
+        transaction.scheduleInside()
+      } finally {
+        exited(context)
+      }
+    }
+  }
+
+  /** The permit was just acquired by the calling thread: install this runtime as its context. */
+  private def installed(context: ThreadSlot.Cell[Runtime]): Unit = {
     context.value = this
     if (sink ne null) {
       sink.permitAcquired(this)
     }
-    try {
-      body
-    } finally {
-      context.value = null
-      permit.release()
-      if (sink ne null) {
-        sink.permitReleased(this)
-        sink.contextRestored(this)
-      }
+  }
+
+  /** Restore the calling thread's context and give the permit back, on every exit of an entry. */
+  private def exited(context: ThreadSlot.Cell[Runtime]): Unit = {
+    context.value = null
+    permit.release()
+    if (sink ne null) {
+      sink.permitReleased(this)
+      sink.contextRestored(this)
     }
   }
 
