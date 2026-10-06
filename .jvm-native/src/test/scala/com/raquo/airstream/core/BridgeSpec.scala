@@ -140,4 +140,34 @@ class BridgeSpec extends UnitSpec {
       (a.holderName, b.holderName) shouldBe ((None, None))
     }
   }
+
+  it("registers each endpoint with its runtime and releases both on the full close, and on either runtime's close") {
+    withRuntimes { (a, b, _) =>
+      val source = inTurn(a)(Var(0))
+      val target = inTurn(b)(Var(-1))
+      val bridge = inTurn(a)(SignalBridge(source.signal, target))
+      b.submit(()).awaitCompleted(timeout)
+      (inTurn(a)(a.bridgeEndpointCount), inTurn(b)(b.bridgeEndpointCount)) shouldBe ((1, 1))
+      bridge.close().awaitCompleted(timeout)
+      (inTurn(a)(a.bridgeEndpointCount), inTurn(b)(b.bridgeEndpointCount)) shouldBe ((0, 0))
+      // The source runtime's close releases its endpoint; the full close then still completes and releases the target's.
+      val second = inTurn(a)(SignalBridge(source.signal, target))
+      b.submit(()).awaitCompleted(timeout)
+      a.close().awaitCompleted(timeout)
+      second.close().awaitCompleted(timeout)
+      inTurn(b)(b.bridgeEndpointCount) shouldBe 0
+      // The target runtime's close releases its endpoint.
+      val thirdPool = new ThreadPool("bridge-third", 1)
+      try {
+        val c = Runtime.scheduled(thirdPool)
+        val third = inTurn(c)(Var(0))
+        val bridgeToB = inTurn(c)(SignalBridge(third.signal, target))
+        b.submit(()).awaitCompleted(timeout)
+        b.close().awaitCompleted(timeout)
+        c.submit(third.set(1)).awaitCompleted(timeout)
+        inTurn(c)(c.bridgeEndpointCount) shouldBe 0
+        bridgeToB.close().awaitCompleted(timeout)
+      } finally thirdPool.close()
+    }
+  }
 }

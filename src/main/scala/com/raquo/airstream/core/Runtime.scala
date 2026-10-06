@@ -416,6 +416,12 @@ final class Runtime private (
     scopes.forEach(closing.push(_))
     closing.forEach(scope => releasing(scope.close()))
     releasing(timers.cancelAll())
+    val sources = JsArray[BridgeLink[?]]()
+    bridgeSources.forEach(sources.push(_))
+    sources.forEach(link => releasing(link.detachSource()))
+    val targets = JsArray[BridgeLink[?]]()
+    bridgeTargets.forEach(targets.push(_))
+    targets.forEach(link => releasing(link.closeTargetEndpoint()))
   }
 
   /** Run one cleanup step; a failure is reported and the cleanup goes on without attempting rollback. */
@@ -458,6 +464,31 @@ final class Runtime private (
       scopes.splice(index, deleteCount = 1)
     }
   }
+
+  /** The bridges whose source endpoint is attached here, and those whose target endpoint is open here, for the close.
+    * Touched only under the permit.
+    */
+  private val bridgeSources: JsArray[BridgeLink[?]] = JsArray()
+
+  private val bridgeTargets: JsArray[BridgeLink[?]] = JsArray()
+
+  private[airstream] def holdBridgeSource(link: BridgeLink[?]): Unit = bridgeSources.push(link)
+
+  private[airstream] def holdBridgeTarget(link: BridgeLink[?]): Unit = bridgeTargets.push(link)
+
+  private[airstream] def forgetBridgeSource(link: BridgeLink[?]): Unit = forget(bridgeSources, link)
+
+  private[airstream] def forgetBridgeTarget(link: BridgeLink[?]): Unit = forget(bridgeTargets, link)
+
+  private def forget(links: JsArray[BridgeLink[?]], link: BridgeLink[?]): Unit = {
+    val index = links.indexOf(link)
+    if (index >= 0) {
+      links.splice(index, deleteCount = 1)
+    }
+  }
+
+  /** How many bridge endpoints this runtime holds, source and target ones. Under the permit. */
+  private[airstream] def bridgeEndpointCount: Int = bridgeSources.length + bridgeTargets.length
 
   /** True once a close cut admission off or finished: a refused delivery is then suppressed on purpose, not an error. */
   private[airstream] def isShutDown: Boolean = {

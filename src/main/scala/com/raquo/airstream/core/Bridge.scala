@@ -147,14 +147,24 @@ private[core] final class BridgeLink[A] private (
   /** In a source turn: stop observing the source. Idempotent. */
   private[core] def detachSource(): Unit = {
     if (sourceDetached.compareAndSet(false, true)) {
+      sourceRuntime.forgetBridgeSource(this)
       owner.killSubscriptions()
+    }
+  }
+
+  /** In a target turn: the target runtime now holds this endpoint, so its close can release it. */
+  private def holdTarget(): Unit = {
+    if (!targetClosed.get) {
+      targetRuntime.holdBridgeTarget(this)
     }
   }
 
   /** In a target turn: apply nothing any more and drop what is buffered. Idempotent. */
   private[core] def closeTargetEndpoint(): Unit = {
-    targetClosed.set(true)
-    early.clear()
+    if (targetClosed.compareAndSet(false, true)) {
+      targetRuntime.forgetBridgeTarget(this)
+      early.clear()
+    }
   }
 
   def closeTarget(): Receipt = targetRuntime.submit(closeTargetEndpoint())
@@ -167,6 +177,11 @@ private[core] final class BridgeLink[A] private (
     }
     receipt.accepted.value.flatMap(_.failed.toOption) match {
       case None => new Receipt(receipt.id, Future.unit, closed.future)
+      case Some(_) if sourceDetached.get =>
+        // The source runtime closed and released the source endpoint after its last turn, so every message it sent is
+        // already admitted at the target; only the target endpoint is left.
+        closeTargetAfter(closed)
+        new Receipt(receipt.id, Future.unit, closed.future)
       case Some(_) => receipt
     }
   }
@@ -197,6 +212,10 @@ private[core] object BridgeLink {
     }
     sourceRuntime.run {
       val link = new BridgeLink[A](sourceRuntime, targetRuntime, write)
+      sourceRuntime.holdBridgeSource(link)
+      // Admitted before the snapshot, so the target holds its endpoint before any message arrives. A refusal needs no
+      // handling here: the snapshot is refused the same way and detaches the source.
+      targetRuntime.submit(link.holdTarget())
       source.addObserver(Observer.fromTry[A](link.send))(link.owner)
       link
     }
