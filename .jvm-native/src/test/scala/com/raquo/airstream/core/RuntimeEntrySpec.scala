@@ -41,6 +41,55 @@ class RuntimeEntrySpec extends UnitSpec {
     runtime.run(1) shouldBe 1
   }
 
+  it("keeps foreign threads hammering run out of a confined and a dispatched runtime while the bound thread enters") {
+    // A bound permit has one writer, its thread: the foreign threads here only ever read it and are refused by the
+    // binding before any graph access, however their attempts interleave with the bound thread's entries and releases.
+    val foreignThreads = 4
+    val attemptsPerThread = 20000
+    val ownEntries = 200000
+    Seq(Runtime.confined(), Runtime.dispatched(scala.concurrent.ExecutionContext.parasitic)).foreach { runtime =>
+      val owner = Thread.currentThread()
+      val foreignBodies = new java.util.concurrent.atomic.AtomicInteger(0)
+      val rejections = new java.util.concurrent.atomic.AtomicInteger(0)
+      val start = new CountDownLatch(1)
+      val hammers = (1 to foreignThreads).map { index =>
+        val thread = new Thread(
+          () => {
+            start.await(5, TimeUnit.SECONDS)
+            var attempt = 0
+            while (attempt < attemptsPerThread) {
+              try {
+                runtime.run(foreignBodies.incrementAndGet())
+              } catch {
+                case _: AirstreamError => rejections.incrementAndGet()
+              }
+              attempt += 1
+            }
+          },
+          s"hammer-$index"
+        )
+        thread.start()
+        thread
+      }
+      start.countDown()
+      var entered = 0
+      var wrongHolder = 0
+      while (entered < ownEntries) {
+        runtime.run {
+          if (!runtime.holderName.contains(owner.getName)) wrongHolder += 1
+          entered += 1
+        }
+      }
+      hammers.foreach(_.join(30000))
+      withClue(s"${runtime.displayName}: ") {
+        foreignBodies.get() shouldBe 0
+        rejections.get() shouldBe foreignThreads * attemptsPerThread
+        wrongHolder shouldBe 0
+        runtime.isEntered shouldBe false
+      }
+    }
+  }
+
   it("rejects an entry into the default runtime while another thread holds it, and admits one once it is released") {
     val inside = new CountDownLatch(1)
     val release = new CountDownLatch(1)

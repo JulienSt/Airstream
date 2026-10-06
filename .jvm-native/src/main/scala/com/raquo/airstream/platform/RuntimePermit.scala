@@ -11,7 +11,8 @@ import java.util.concurrent.atomic.AtomicReference
   *
   * A permit is either bound to one thread for its whole life, which is what `Runtime.confined()` creates, or floating,
   * which is what the default runtime uses so that an application that touches Airstream from one thread at a time keeps
-  * working whichever thread that is. A bound permit refuses every other thread even while it is free.
+  * working whichever thread that is. A bound permit refuses every other thread even while it is free, so only its own
+  * thread ever writes the holder, and it takes the permit with a check and a release store instead of a compare-and-set.
   *
   * A scheduled permit admits no synchronous entry at all: `acquire` always fails, so `run` from outside a turn is
   * rejected and the graph is reached through `submit`. Only the mailbox's drainer takes it, with `claim`, for one turn.
@@ -46,7 +47,7 @@ final private[airstream] class RuntimePermit private (bound: Thread, admitsEntry
     */
   def acquire(): Boolean = {
     val current = Thread.currentThread()
-    !retired && admitsEntry && isBoundToOrUnbound(current) && holder.compareAndSet(null, current)
+    !retired && admitsEntry && isBoundToOrUnbound(current) && take(current)
   }
 
   /** Take the permit for a drainer's turn on the calling thread; false when another thread holds it or the permit is
@@ -54,7 +55,25 @@ final private[airstream] class RuntimePermit private (bound: Thread, admitsEntry
     */
   def claim(): Boolean = {
     val current = Thread.currentThread()
-    !retired && isBoundToOrUnbound(current) && holder.compareAndSet(null, current)
+    !retired && isBoundToOrUnbound(current) && take(current)
+  }
+
+  /** Make `current`, which the binding admitted, the holder when nobody holds the permit.
+    *
+    * A bound permit has a single writer: only its own thread passes the binding, so only that thread ever writes the
+    * holder (here, and in `release`, which only the holder calls). Exclusion therefore holds by construction, and a check
+    * followed by a release store takes the permit without the compare-and-set a floating permit needs, whose takers race.
+    * Foreign threads only read the holder, and every value they can read differs from themselves.
+    */
+  private def take(current: Thread): Boolean = {
+    if (bound eq null) {
+      holder.compareAndSet(null, current)
+    } else if (holder.get() eq null) {
+      holder.lazySet(current)
+      true
+    } else {
+      false
+    }
   }
 
   /** Refuse every later `acquire` and `claim`; the holder, if any, keeps the permit until it releases it. */
