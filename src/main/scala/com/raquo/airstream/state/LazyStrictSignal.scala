@@ -6,8 +6,9 @@ import com.raquo.airstream.debug.{Debugger, DebuggerSignal}
 import com.raquo.airstream.distinct.DistinctSignal
 import com.raquo.airstream.map.MapSignal
 import com.raquo.airstream.scan.ScanLeftSignal
+import com.raquo.airstream.util.projectCatching
 
-import scala.util.Try
+import scala.util.{Failure, Success, Try}
 
 /** #TODO[Naming,Org] Messy
   *
@@ -81,19 +82,39 @@ object LazyStrictSignal {
     parentDisplayName: => String,
     displayNameSuffix: String,
   ): StrictSignal[O] = {
-    val _pdn = parentDisplayName
-    val _dns = displayNameSuffix
+    new LazyStrictMapSignal[I, O](parentSignal, project, parentDisplayName, displayNameSuffix)
+  }
 
-    // A MapSignal without `recover` is exactly this signal's mapping; building on it keeps `parent` a constructor
-    // parameter, which the runtime capture in SingleParentSignal reads while the traits initialise.
-    new MapSignal[I, O](parentSignal, project, recover = None)
-      with LazyStrictSignal[I, O] {
+  /** The signal `mapSignal` builds: `project` applied to every parent value, an error passed on as it is.
+    *
+    * A class of its own because `parent` must be a constructor parameter: `SingleParentSignal` takes its runtime from the
+    * parent while the traits initialise, before an anonymous class's overriding `val` is assigned. Not a `MapSignal`
+    * without `recover`, which behaves the same but brings its error recovery into every program that maps a Var.
+    */
+  final private class LazyStrictMapSignal[I, O](
+    override protected val parent: Signal[I],
+    project: I => O,
+    parentName: String,
+    override protected val displayNameSuffix: String
+  ) extends LazyStrictSignal[I, O] {
 
-      override protected def parentDisplayName: String = _pdn
+    override protected val topoRank: Int = Protected.topoRank(parent) + 1
 
-      override protected val displayNameSuffix: String = _dns
+    override protected def parentDisplayName: String = parentName
 
-      override protected def displayClassName: String = s"LazyStrictSignal{}"
+    override protected def displayClassName: String = s"LazyStrictSignal{}"
+
+    // A match, not `Try.map` or `fold`: a closure per event otherwise.
+    override protected def onTry(nextParentValue: Try[I], transaction: Transaction): Unit = {
+      super.onTry(nextParentValue, transaction)
+      nextParentValue match {
+        case Success(parentValue) => fireTry(projectCatching(project, parentValue), transaction)
+        case Failure(error) => fireError(error, transaction)
+      }
+    }
+
+    override protected def currentValueFromParent(): Try[O] = {
+      parent.tryNow().map(project)
     }
   }
 
