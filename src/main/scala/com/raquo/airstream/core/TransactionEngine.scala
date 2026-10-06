@@ -1,7 +1,7 @@
 package com.raquo.airstream.core
 
 import com.raquo.airstream.platform.{JsArray, JsMap}
-import com.raquo.airstream.platform.{undefined, UndefOr}
+import com.raquo.airstream.platform.UndefOr
 
 import scala.annotation.tailrec
 
@@ -31,21 +31,23 @@ final private[airstream] class TransactionEngine(runtime: Runtime) {
     // 2. Regarding the queue:
     //    If a transaction is currently running, add newTransaction to its children.
     //    They will run after the current transaction finishes.
-    peekStack().fold {
+    // Written as explicit branches over the stack's length rather than a fold over its optional top: this is the root
+    // write's path, and a fold's two closures capture this engine and the transaction.
+    if (stack.length == 0) {
       // #TODO[Performance] This pushToStack is taking up 15% of cpu time on a trivial eventbus --> Observer.empty benchmark.
       //  Should we try to optimize it? Since we run the trx immediately, perhaps we could simply set a flag instead of pushing it to the array?
       //  Consider this later when I have moer comprehensive benchmarks.
       pushToStack(newTransaction)
       run(newTransaction)
       done(newTransaction)
-    } { currentTransaction =>
-      enqueueChild(parent = currentTransaction, newChild = newTransaction)
+    } else {
+      enqueueChild(parent = stack(0), newChild = newTransaction)
     }
   }
 
   /** #Warning: you MUST call done(trx) after calling `run(trx)`! */
   @tailrec def done(transaction: Transaction): Unit = {
-    if (!peekStack().contains(transaction)) {
+    if (stack.length == 0 || (stack(0) ne transaction)) {
       // @TODO[Integrity] Should we really throw here?
       throw new Exception("Transaction queue error: Completed transaction is not the first in stack. This is a bug in Airstream.")
     }
@@ -54,15 +56,14 @@ final private[airstream] class TransactionEngine(runtime: Runtime) {
 
     transaction.code = TransactionEngine.throwDeadTrxError // stop holding up `trx` contents in memory
 
-    val maybeNextTransaction = peekStack()
-    if (maybeNextTransaction == undefined) {
+    if (stack.length == 0) {
       if (children.size > 0) {
         var numChildren = 0
         children.forEach((transactions, _) => numChildren += transactions.length)
         throw new Exception(s"Transaction queue error: Stack cleared, but a total of ${numChildren} children for ${children.size} transactions remain. This is a bug in Airstream.")
       }
     } else {
-      val nextTransaction = maybeNextTransaction.asInstanceOf[Transaction]
+      val nextTransaction = stack(0)
       run(nextTransaction)
       done(nextTransaction)
     }
@@ -73,21 +74,18 @@ final private[airstream] class TransactionEngine(runtime: Runtime) {
    */
   @tailrec private def putNextTransactionOnStack(doneTransaction: Transaction): Unit = {
     // We use depth-first because of https://github.com/raquo/Airstream/issues/39
-    val maybeNextChildTrx = dequeueChild(parent = doneTransaction)
-    if (maybeNextChildTrx == undefined) {
+    val maybeChildren = children.get(doneTransaction)
+    if (maybeChildren.isEmpty || maybeChildren.get.length == 0) {
       // No children, this transaction is truly done now, remove it from the stack.
       popStack()
       // If any transactions left in the stack, recurse
-      val maybeParentTransaction = peekStack()
-      if (maybeParentTransaction != undefined) {
-        val parentTransaction = maybeParentTransaction.asInstanceOf[Transaction]
-        putNextTransactionOnStack(doneTransaction = parentTransaction)
+      if (stack.length > 0) {
+        putNextTransactionOnStack(doneTransaction = stack(0))
       }
     } else {
-      val nextChildTrx = maybeNextChildTrx.asInstanceOf[Transaction]
       // Found a child transaction, so put it on the stack, so that it wil run next.
       // Once that child is all done, it will be popped from the stack, and we will
-      pushToStack(nextChildTrx)
+      pushToStack(dequeueChild(parent = doneTransaction, parentChildren = maybeChildren.get))
     }
   }
 
@@ -97,40 +95,39 @@ final private[airstream] class TransactionEngine(runtime: Runtime) {
     stack(0)
   }
 
-  def isClearState: Boolean = stack.length == 0 && children.size == 0
-
-  private def maybeChildrenFor(transaction: Transaction): UndefOr[JsArray[Transaction]] = {
-    children.get(transaction)
+  /** The depth of a transaction created now: one below the running transaction, or 1 for a root. */
+  def depthOfNewTransaction: Int = {
+    if (stack.length == 0) 1 else stack(0).depthOfChild
   }
+
+  def isClearState: Boolean = stack.length == 0 && children.size == 0
 
   private def pushToStack(transaction: Transaction): Unit = {
     stack.unshift(transaction)
   }
 
-  private def popStack(): UndefOr[Transaction] = {
-    // JsArray.shift returns `undefined` if array is empty
+  private def popStack(): Unit = {
     stack.shift()
   }
 
   private def enqueueChild(parent: Transaction, newChild: Transaction): Unit = {
-    val maybeChildren = maybeChildrenFor(parent)
-    val noChildrenFound = maybeChildren.isEmpty
-    val newChildren = maybeChildren.getOrElse(JsArray())
-    newChildren.push(newChild)
-    if (noChildrenFound) {
+    val maybeChildren = children.get(parent)
+    if (maybeChildren.isEmpty) {
+      val newChildren = JsArray[Transaction]()
+      newChildren.push(newChild)
       children.set(parent, newChildren)
+    } else {
+      maybeChildren.get.push(newChild)
     }
   }
 
-  private def dequeueChild(parent: Transaction): UndefOr[Transaction] = {
-    val maybeParentChildren = maybeChildrenFor(parent)
-    maybeParentChildren.filter(_.length > 0).map { parentChildren =>
-      val nextChild = parentChildren.shift()
-      if (parentChildren.length == 0) {
-        children.delete(parent)
-      }
-      nextChild
+  /** Take the first child of `parent`'s non-empty queue `parentChildren`, forgetting the queue with its last child. */
+  private def dequeueChild(parent: Transaction, parentChildren: JsArray[Transaction]): Transaction = {
+    val nextChild = parentChildren.shift()
+    if (parentChildren.length == 0) {
+      children.delete(parent)
     }
+    nextChild
   }
 
   /** #Warning: you MUST call `done(trx)` after calling `run(trx)`! */

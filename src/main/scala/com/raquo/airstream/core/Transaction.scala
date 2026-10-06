@@ -50,13 +50,16 @@ class Transaction private[airstream] (
     */
   private var depth: Int = 0
 
+  /** The depth of a transaction this one is the parent of. */
+  private[core] def depthOfChild: Int = depth + 1
+
   runtime.schedule(this)
 
   /** Compute the depth and file this transaction with its runtime: run now as a root, queue as a child, wait for the end of
     * a shared start, or report the depth limit. Called once, from the constructor, inside the runtime (`Runtime.schedule`).
     */
   private[core] def scheduleInside(): Unit = {
-    depth = runtime.transactions.peekStack().fold(1)(_.depth + 1)
+    depth = runtime.transactions.depthOfNewTransaction
     runtime.traceTransactionCreated()
     if (depth <= runtime.maxDepth || runtime.maxDepth == -1) {
       if (runtime.sharedStart.isInSharedStart) {
