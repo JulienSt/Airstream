@@ -131,4 +131,28 @@ class RuntimeCompositionSpec extends UnitSpec {
       owner.killSubscriptions()
     }
   }
+
+  // EventStream.empty was one stream for the whole process, so it belonged to
+  // whichever runtime first initialised the companion, and merging it into a graph of any other runtime was rejected.
+  it("gives a runtime that did not initialise the companion an empty stream it can merge with") {
+    EventStream.empty.runtime shouldBe Runtime.default
+    val other = Runtime.confined()
+    val seen = mutable.Buffer[Int]()
+    other.run {
+      val owner = new ManualOwner
+      val bus = new EventBus[Int]
+      EventStream.merge(bus.events, EventStream.empty).foreach(seen += _)(owner)
+      bus.emit(1)
+      owner.killSubscriptions()
+    }
+    seen.toList shouldBe List(1)
+  }
+
+  it("builds EventStream.empty in the runtime that asks for it") {
+    val first = Runtime.confined()
+    val second = Runtime.confined()
+    first.run(EventStream.empty).runtime shouldBe first
+    second.run(EventStream.empty).runtime shouldBe second
+    EventStream.empty.runtime shouldBe Runtime.default
+  }
 }

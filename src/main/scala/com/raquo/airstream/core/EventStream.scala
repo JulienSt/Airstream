@@ -337,8 +337,13 @@ with EventStreamPlatformOps // Provides fromFuture, and the promise constructors
     (bus.events, PlatformCallbacks.fromFunction(bus.writer.onNext))
   }
 
-  /** Event stream that never emits anything */
-  val empty: EventStream[Nothing] = {
+  /** Event stream that never emits anything.
+    *
+    * A new stream per call, in the runtime the caller is inside: every observable belongs to one runtime, so one stream shared by
+    * the whole process would belong to whichever runtime first initialised this companion, and a graph of any other runtime could
+    * not merge or combine with it.
+    */
+  def empty: EventStream[Nothing] = {
     fromCustomSource[Nothing](
       shouldStart = _ => false,
       start = (_, _, _, _) => (),
