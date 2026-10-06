@@ -36,4 +36,14 @@ class TimerIngressSpec extends UnitSpec {
       fired.get shouldBe 0
     }
   }
+
+  it("fires a scheduled runtime's due timers in a turn when a host thread reports readiness by submission") {
+    withScheduled { runtime =>
+      val fired = new AtomicReference(Vector.empty[String])
+      inTurn(runtime)(runtime.timers.setTimeout(5)(fired.updateAndGet(_ :+ Thread.currentThread.getName)))
+      runtime.timers.submitDue(10).awaitCompleted(timeout)
+      fired.get.map(_.startsWith("timer-turns")) shouldBe Vector(true)
+      inTurn(runtime)(runtime.timers.pendingCount) shouldBe 0
+    }
+  }
 }

@@ -1,6 +1,6 @@
 package com.raquo.airstream.platform
 
-import com.raquo.airstream.core.Runtime
+import com.raquo.airstream.core.{Receipt, Runtime}
 
 import scala.collection.mutable
 
@@ -106,6 +106,15 @@ final class RuntimeTimers(runtime: Runtime) {
     *   how many callbacks ran, so a driver can tell whether it made progress
     */
   def runDue(now: Double): Int = runtime.run(runDueInside(now))
+
+  /** Report readiness from any thread: run the callbacks due by `now` in a turn of this runtime.
+    *
+    * @return the receipt of the turn that pumps the queue
+    */
+  def submitDue(now: Double): Receipt = runtime.submit {
+    runDueInside(now)
+    ()
+  }
 
   /** The pump itself, under the permit: the queue and the clock are runtime state. */
   private def runDueInside(now: Double): Int = {
