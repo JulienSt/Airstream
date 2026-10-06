@@ -101,7 +101,7 @@ class UpdateIdSemanticsSpec extends UnitSpec {
     log.toList
   }
 
-  private final case class Item(id: Int, label: String)
+  final private case class Item(id: Int, label: String)
 
   private val splitActive: () => Seq[String] = () => {
     val log = mutable.Buffer[String]()
