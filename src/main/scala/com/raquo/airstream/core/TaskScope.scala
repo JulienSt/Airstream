@@ -79,19 +79,31 @@ final class TaskScope private[airstream] (runtime: Runtime) {
   def close(): Unit = runtime.run {
     open = false
     abandonRunning()
+    runtime.forgetScope(this)
   }
 
   /** On the worker: hand the result to the runtime. Nothing here touches the scope; the decision is the runtime's. */
   private def returnResult[A](task: ManagedTask, launchedIn: Long, result: Try[A], deliver: Try[A] => Unit): Unit = {
     val receipt = runtime.submit(applyResult(task, launchedIn, result, deliver))
     receipt.accepted.value.flatMap(_.failed.toOption).foreach { rejection =>
-      // The result never reached the graph; a failure it carried must not vanish with it. Reported
-      // before the outcome settles, so whoever waits for the outcome finds the report already made.
-      val report = DeliveryRejected(runtime, rejection)
-      result.failed.foreach(report.addSuppressed)
-      runtime.sendUnhandledError(report)
-      task.settle(TaskOutcome.Rejected(rejection))
+      if (runtime.isShutDown) {
+        // The runtime closed on purpose and its close closed this scope: a late result is suppressed.
+        task.settle(TaskOutcome.Suppressed)
+      } else {
+        rejectResult(task, result, rejection)
+      }
     }
+  }
+
+  /** The runtime refused the result while open (a full mailbox, a failed runtime, a direct runtime the worker may not
+    * enter): the result never reached the graph, and a failure it carried must not vanish with it.
+    * Reported before the outcome settles, so whoever waits for the outcome finds the report already made.
+    */
+  private def rejectResult[A](task: ManagedTask, result: Try[A], rejection: Throwable): Unit = {
+    val report = DeliveryRejected(runtime, rejection)
+    result.failed.foreach(report.addSuppressed)
+    runtime.sendUnhandledError(report)
+    task.settle(TaskOutcome.Rejected(rejection))
   }
 
   /** Inside the runtime: deliver the result when its generation is still the scope's, suppress it otherwise. */

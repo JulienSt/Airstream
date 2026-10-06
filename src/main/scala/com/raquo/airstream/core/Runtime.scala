@@ -363,8 +363,21 @@ final class Runtime private (
     }
   }
 
-  /** The cleanup itself, under the permit: release what this runtime owns. */
-  private def releaseOwned(): Unit = ()
+  /** The cleanup itself, under the permit: release what this runtime owns, each part even when an earlier one failed. */
+  private def releaseOwned(): Unit = {
+    val closing = JsArray[TaskScope]()
+    scopes.forEach(closing.push(_))
+    closing.forEach(scope => releasing(scope.close()))
+  }
+
+  /** Run one cleanup step; a failure is reported and the cleanup goes on without attempting rollback. */
+  private def releasing(step: => Unit): Unit = {
+    try {
+      step
+    } catch {
+      case NonFatal(err) => sendUnhandledError(err)
+    }
+  }
 
   /** Report the admission cutoff of a close to the trace, when one is installed. */
   private[airstream] def traceAdmissionClosed(): Unit = {
@@ -380,8 +393,29 @@ final class Runtime private (
     }
   }
 
-  /** A new [[TaskScope]] whose results are delivered into this runtime. */
-  def taskScope(): TaskScope = run(new TaskScope(this))
+  /** A new [[TaskScope]] whose results are delivered into this runtime; the runtime's close closes it. */
+  def taskScope(): TaskScope = run {
+    val scope = new TaskScope(this)
+    scopes.push(scope)
+    scope
+  }
+
+  /** The open task scopes of this runtime, for its close. Touched only under the permit. */
+  private val scopes: JsArray[TaskScope] = JsArray()
+
+  /** Forget a scope that closed by itself. Under the permit. */
+  private[airstream] def forgetScope(scope: TaskScope): Unit = {
+    val index = scopes.indexOf(scope)
+    if (index >= 0) {
+      scopes.splice(index, deleteCount = 1)
+    }
+  }
+
+  /** True once a close cut admission off or finished: a refused delivery is then suppressed on purpose, not an error. */
+  private[airstream] def isShutDown: Boolean = {
+    val current = state
+    (current eq RuntimeState.Closing) || (current eq RuntimeState.Closed)
+  }
 
   /** Ids of the managed tasks launched in this runtime's scopes; 64-bit, never reused. */
   private val taskIds: AtomicCounter = new AtomicCounter
