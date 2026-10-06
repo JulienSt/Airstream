@@ -95,6 +95,9 @@ final class RuntimeTimers(runtime: Runtime) {
 
   /** Run every callback whose deadline has been reached by `now`, earliest first, each inside this runtime.
     *
+    * The pump enters the runtime before it touches the queue, so a thread the runtime does not admit is rejected with the
+    * queue intact; a host outside a scheduled runtime reports readiness with [[submitDue]] instead.
+    *
     * Callbacks scheduled from inside one of these do not run in the same pump. Letting them would make a single pump
     * able to loop forever on a timer that reschedules itself with a zero delay, which is exactly what a periodic stream
     * does. They run on the next pump instead, which keeps each pump bounded.
@@ -102,7 +105,10 @@ final class RuntimeTimers(runtime: Runtime) {
     * @return
     *   how many callbacks ran, so a driver can tell whether it made progress
     */
-  def runDue(now: Double): Int = {
+  def runDue(now: Double): Int = runtime.run(runDueInside(now))
+
+  /** The pump itself, under the permit: the queue and the clock are runtime state. */
+  private def runDueInside(now: Double): Int = {
     currentTime = now
     val due = pending.filter(_.dueAt <= now).sortBy(_.dueAt).toList
     var ran = 0

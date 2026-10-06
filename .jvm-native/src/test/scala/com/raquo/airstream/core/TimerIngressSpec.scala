@@ -1,0 +1,39 @@
+package com.raquo.airstream.core
+
+import com.raquo.airstream.UnitSpec
+import com.raquo.airstream.core.AirstreamError.ScheduledRuntimeEntry
+import com.raquo.airstream.fixtures.ThreadPool
+
+import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
+import scala.concurrent.duration._
+
+/** Timer readiness on JVM and Native: the queue, the clock and the handles are runtime
+  * state, touched only under the permit. A host thread outside a scheduled runtime reports readiness as a submitted
+  * command; a pump that would enter the runtime directly is rejected before it touches the queue.
+  */
+class TimerIngressSpec extends UnitSpec {
+
+  private val timeout = 5.seconds
+
+  private def withScheduled[A](body: Runtime => A): A = {
+    val pool = new ThreadPool("timer-turns", 1)
+    try body(Runtime.scheduled(pool)) finally pool.close()
+  }
+
+  /** Read `read` inside a turn of `runtime`, from outside every runtime. */
+  private def inTurn[A](runtime: Runtime)(read: => A): A = {
+    val cell = new AtomicReference[Option[A]](None)
+    runtime.submit(cell.set(Some(read))).awaitCompleted(timeout)
+    cell.get.get
+  }
+
+  it("rejects a direct pump of a scheduled runtime's timers before it touches the queue: the due timer stays pending") {
+    withScheduled { runtime =>
+      val fired = new AtomicInteger(0)
+      inTurn(runtime)(runtime.timers.setTimeout(5)(fired.incrementAndGet()))
+      assertThrows[ScheduledRuntimeEntry](runtime.timers.runDue(10))
+      inTurn(runtime)(runtime.timers.pendingCount) shouldBe 1
+      fired.get shouldBe 0
+    }
+  }
+}
