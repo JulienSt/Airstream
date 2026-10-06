@@ -151,9 +151,13 @@ final class Runtime private (
     }
   }
 
-  /** Report a completion this runtime could not take to its unhandled-error channel, from the delivering thread. */
+  /** Report a completion this runtime could not take to its unhandled-error channel, from the delivering thread; after a
+    * close it is suppressed instead, because the runtime ended on purpose.
+    */
   private def refuseDelivery(cause: Throwable): Unit = {
-    sendUnhandledError(DeliveryRejected(this, cause))
+    if (!isShutDown) {
+      sendUnhandledError(DeliveryRejected(this, cause))
+    }
   }
 
   /** Why a synchronous entry is refused: a scheduled runtime is entered through `submit`, a direct one belongs to

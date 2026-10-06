@@ -92,7 +92,8 @@ private[airstream] final class Mailbox(
     val current = lifecycle.get
     val count = reserved.get
     if ((count & Mailbox.AdmissionClosed) != 0L) {
-      Some(SubmissionRejected(runtime, "the runtime is closing"))
+      val phase = if (current eq RuntimeState.Open) "closing" else current.toString.toLowerCase
+      Some(SubmissionRejected(runtime, s"the runtime is $phase"))
     } else if (current ne RuntimeState.Open) {
       Some(SubmissionRejected(runtime, s"the runtime is ${current.toString.toLowerCase}"))
     } else {

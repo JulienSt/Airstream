@@ -3,6 +3,7 @@ package com.raquo.airstream.core
 import com.raquo.airstream.UnitSpec
 import com.raquo.airstream.core.AirstreamError.ClosedRuntimeEntry
 import com.raquo.airstream.fixtures.ManualExecutor
+import com.raquo.airstream.ownership.ManualOwner
 
 import scala.collection.mutable
 import scala.concurrent.ExecutionContext
@@ -69,5 +70,24 @@ class RuntimeClosureSpec extends UnitSpec {
     assertThrows[ClosedRuntimeEntry](runtime.run(()))
     runtime.submit(()).isAccepted shouldBe false
     runtime.isEntered shouldBe false
+  }
+
+  it("suppresses a delivery that arrives after the close, without an error report: the runtime ended on purpose") {
+    val executor = new ManualExecutor
+    val runtime = Runtime.scheduled(executor)
+    val reported = mutable.Buffer[Throwable]()
+    runtime.registerUnhandledErrorCallback(reported += _)
+    val seen = mutable.Buffer[Int]()
+    var fire: Int => Unit = null
+    runtime.submit {
+      EventStream.fromCustomSource[Int](start = (f, _, _, _) => fire = f, stop = _ => ()).foreach(seen += _)(new ManualOwner)
+    }
+    executor.runAll()
+    runtime.close()
+    executor.runAll()
+    fire(1)
+    executor.runAll()
+    seen.toList shouldBe Nil
+    reported.toList shouldBe Nil
   }
 }
