@@ -7,8 +7,9 @@ import scala.scalajs.js
 /** Delayed callbacks of one runtime on Scala.js: the event loop's own timers, with each callback entering its runtime.
   *
   * The event loop already owns the scheduling, the ordering and the firing, and nothing here tries to own any of it a
-  * second time. What a runtime adds is the entry: a due callback runs inside `runtime.run`, so the transactions it
-  * creates belong to the runtime that scheduled it rather than to whatever the page happens to be inside.
+  * second time. What a runtime adds is the entry: a due callback is delivered through `Runtime.deliver`, so the
+  * transactions it creates belong to the runtime that scheduled it rather than to whatever the page happens to be inside,
+  * and a scheduled runtime receives it as a turn of its own instead of being entered from the event loop.
   */
 final class RuntimeTimers(runtime: Runtime) {
 
@@ -18,7 +19,7 @@ final class RuntimeTimers(runtime: Runtime) {
     *   a handle that cancels it
     */
   def setTimeout(delayMillis: Double)(body: => Unit): RuntimeTimers.TimerHandle =
-    js.timers.setTimeout(delayMillis)(runtime.run(body))
+    js.timers.setTimeout(delayMillis)(runtime.deliver(body))
 
   /** Cancel a scheduled callback. Accepts a handle that already fired, because a caller cannot always know. */
   def clearTimeout(handle: RuntimeTimers.TimerHandle): Unit =
@@ -30,7 +31,7 @@ final class RuntimeTimers(runtime: Runtime) {
     *   a handle that cancels every future repetition
     */
   def setInterval(intervalMillis: Double)(body: => Unit): RuntimeTimers.IntervalHandle =
-    js.timers.setInterval(intervalMillis)(runtime.run(body))
+    js.timers.setInterval(intervalMillis)(runtime.deliver(body))
 
   /** Cancel a repeating callback. Accepts a handle that was already cancelled. */
   def clearInterval(handle: RuntimeTimers.IntervalHandle): Unit =
