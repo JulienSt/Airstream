@@ -264,6 +264,4 @@ private[airstream] object Mailbox {
   /** The admission cutoff bit of the reservation counter: set by a close, it makes every later reservation fail. */
   val AdmissionClosed: Long = 1L << 62
 
-  /** The executor and bounds of a scheduled runtime. */
-  final case class Scheduling(executor: ExecutionContext, capacity: Int, turnsPerDrain: Int)
 }

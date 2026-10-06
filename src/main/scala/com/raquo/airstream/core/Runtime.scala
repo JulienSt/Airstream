@@ -32,15 +32,18 @@ final class Runtime private (
   permit: RuntimePermit,
   isDefault: Boolean,
   initialUnhandledErrorCallbacks: JsArray[Throwable => Unit],
-  scheduling: Option[Mailbox.Scheduling]
+  mailboxFor: Runtime => Mailbox
 ) extends Named {
 
   private val unhandledErrorCallbacks: JsArray[Throwable => Unit] = initialUnhandledErrorCallbacks
 
-  /** The mailbox of a scheduled runtime; null for a direct one, which runs a submitted command at once. */
-  private[airstream] val mailbox: Mailbox =
-    if (scheduling.isDefined) new Mailbox(this, scheduling.get.executor, scheduling.get.capacity, scheduling.get.turnsPerDrain)
-    else null
+  /** The mailbox of a scheduled runtime; null for a direct one, which runs a submitted command at once.
+    *
+    * Built by the function the scheduled and dispatched factories pass in, never by a constructor branch: on Scala.js a
+    * `new Mailbox` that only those factories contain keeps the mailbox, its promises and `scala.concurrent` out of every
+    * program that never creates a scheduled runtime.
+    */
+  private[airstream] val mailbox: Mailbox = if (mailboxFor eq null) null else mailboxFor(this)
 
   /** Ids of the commands submitted to this runtime, direct or scheduled; 64-bit, never reused. */
   private val commandIds: AtomicCounter = new AtomicCounter
@@ -712,7 +715,7 @@ object Runtime {
     RuntimePermit.floating(),
     isDefault = true,
     initialUnhandledErrorCallbacks = JsArray(AirstreamError.consoleErrorCallback),
-    scheduling = None
+    mailboxFor = null
   )
 
   /** The `activeCommand` value of a thread outside every command. */
@@ -727,7 +730,7 @@ object Runtime {
   /** A new runtime bound to the calling thread: only that thread may enter it, every other thread is rejected before any
     * graph access. On Scala.js the binding is moot and the runtime is simply a separate one.
     */
-  def confined(): Runtime = create(RuntimePermit.boundToCurrentThread(), None)
+  def confined(): Runtime = create(RuntimePermit.boundToCurrentThread(), mailboxFor = null)
 
   /** A new runtime whose turns run on `executor`, one at a time, with the default capacity and drain budget.
     *
@@ -745,7 +748,7 @@ object Runtime {
   def scheduled(executor: ExecutionContext, capacity: Int, turnsPerDrain: Int): Runtime = {
     require(capacity > 0, s"capacity must be positive, got $capacity")
     require(turnsPerDrain > 0, s"turnsPerDrain must be positive, got $turnsPerDrain")
-    create(RuntimePermit.scheduled(), Some(Mailbox.Scheduling(executor, capacity, turnsPerDrain)))
+    create(RuntimePermit.scheduled(), runtime => new Mailbox(runtime, executor, capacity, turnsPerDrain))
   }
 
   /** A new runtime for a UI thread: a scheduled runtime whose dispatcher always runs on the calling thread.
@@ -756,14 +759,14 @@ object Runtime {
     * touching the graph from a foreign thread. Create it on the UI thread.
     */
   def dispatched(dispatcher: ExecutionContext): Runtime =
-    create(RuntimePermit.boundToCurrentThread(), Some(Mailbox.Scheduling(dispatcher, DefaultCapacity, DefaultTurnsPerDrain)))
+    create(RuntimePermit.boundToCurrentThread(), runtime => new Mailbox(runtime, dispatcher, DefaultCapacity, DefaultTurnsPerDrain))
 
-  private def create(permit: RuntimePermit, scheduling: Option[Mailbox.Scheduling]): Runtime = {
+  private def create(permit: RuntimePermit, mailboxFor: Runtime => Mailbox): Runtime = {
     val runtime = new Runtime(
       permit,
       isDefault = false,
       initialUnhandledErrorCallbacks = copyOf(default.unhandledErrorCallbacks),
-      scheduling
+      mailboxFor
     )
     runtime.configureFrom(default)
     runtime
