@@ -183,8 +183,10 @@ object Observer {
         }
       }
 
-      override def onTry(nextValue: Try[A]): Unit = {
-        nextValue.fold(onError, onNext)
+      // A match, not `Try.fold`: the fold's two eta-expanded methods are a closure each per event.
+      override def onTry(nextValue: Try[A]): Unit = nextValue match {
+        case Success(value) => onNext(value)
+        case Failure(error) => onError(error)
       }
     }
   }

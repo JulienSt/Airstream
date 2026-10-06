@@ -42,8 +42,10 @@ object InternalObserver {
         onErrorParam(nextError, transaction)
       }
 
-      final override def onTry(nextValue: Try[A], transaction: Transaction): Unit = {
-        nextValue.fold(onError(_, transaction), onNext(_, transaction))
+      // A match, not `Try.fold`: the fold's two closures over the transaction are objects per event.
+      final override def onTry(nextValue: Try[A], transaction: Transaction): Unit = nextValue match {
+        case Success(value) => onNext(value, transaction)
+        case Failure(error) => onError(error, transaction)
       }
     }
   }

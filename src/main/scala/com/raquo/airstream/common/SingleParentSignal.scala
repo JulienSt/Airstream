@@ -82,8 +82,10 @@ with InternalTryObserver[I] {
     * Other Overrides in other
     */
   override protected def onTry(nextParentValue: Try[I], transaction: Transaction): Unit = {
-    parentAsSignalOpt.foreach { _ =>
-      _parentLastUpdateId = Protected.lastUpdateId(parent.asInstanceOf[Signal[?]])
+    // A match, not `Option.foreach`: a closure over this signal per node per event otherwise.
+    parentAsSignalOpt match {
+      case Some(parentSignal) => _parentLastUpdateId = Protected.lastUpdateId(parentSignal)
+      case None => ()
     }
   }
 

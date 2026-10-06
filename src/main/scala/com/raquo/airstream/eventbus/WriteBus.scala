@@ -4,7 +4,7 @@ import com.raquo.airstream.core.{EventStream, InternalObserver, Observer, Runtim
 import com.raquo.airstream.ownership.{Owner, Subscription}
 import com.raquo.airstream.util.hasDuplicateKeys
 
-import scala.util.Try
+import scala.util.{Failure, Success, Try}
 
 class WriteBus[A](
   parentDisplayName: => String,
@@ -79,8 +79,10 @@ class WriteBus[A](
     }
   }
 
-  final override def onTry(nextValue: Try[A]): Unit = {
-    nextValue.fold(onError, onNext)
+  // Matches, not `Try.fold`: the fold's two closures are objects per emission.
+  final override def onTry(nextValue: Try[A]): Unit = nextValue match {
+    case Success(value) => onNext(value)
+    case Failure(error) => onError(error)
   }
 
   private[eventbus] def onNextWithSharedTransaction(nextValue: A, sharedTransaction: Transaction): Unit = {
@@ -95,11 +97,9 @@ class WriteBus[A](
     }
   }
 
-  private[eventbus] def onTryWithSharedTransaction(nextValue: Try[A], sharedTransaction: Transaction): Unit = {
-    nextValue.fold(
-      onErrorWithSharedTransaction(_, sharedTransaction),
-      onNextWithSharedTransaction(_, sharedTransaction)
-    )
+  private[eventbus] def onTryWithSharedTransaction(nextValue: Try[A], sharedTransaction: Transaction): Unit = nextValue match {
+    case Success(value) => onNextWithSharedTransaction(value, sharedTransaction)
+    case Failure(error) => onErrorWithSharedTransaction(error, sharedTransaction)
   }
 
   override protected def defaultDisplayName: String = parentDisplayName + displayNameSuffix

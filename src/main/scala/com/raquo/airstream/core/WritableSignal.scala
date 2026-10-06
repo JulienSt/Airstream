@@ -95,8 +95,10 @@ trait WritableSignal[A] extends Signal[A] with WritableObservable[A] {
     //
     // We want to report unhandled errors on such signals if they have no observers (including internal observers)
     // because if we don't, the error will not be reported anywhere, and I think we would usually want it to be reported.
-    if (nextValue.isFailure && external == 0 && internal == 0 && runtime.strictSignalErrorReporting) {
-      nextValue.fold(AirstreamError.sendUnhandledError, _ => ())
+    nextValue match {
+      case Failure(error) if external == 0 && internal == 0 && runtime.strictSignalErrorReporting =>
+        AirstreamError.sendUnhandledError(error)
+      case _ => ()
     }
   }
 

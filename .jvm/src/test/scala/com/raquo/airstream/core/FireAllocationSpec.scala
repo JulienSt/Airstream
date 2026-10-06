@@ -20,6 +20,8 @@ class FireAllocationSpec extends UnitSpec {
     override protected def onWillStart(): Unit = ()
 
     def fire(value: Int, transaction: Transaction): Unit = fireValue(value, transaction)
+
+    def fireAsTry(value: Try[Int], transaction: Transaction): Unit = fireTry(value, transaction)
   }
 
   final private class FiringSignal extends WritableSignal[Int] {
@@ -101,5 +103,54 @@ class FireAllocationSpec extends UnitSpec {
     }
     (external.sum > 0L) shouldBe true
     (internal.sum > 0L) shouldBe true
+  }
+
+  // Handing on a `Try`: dispatching on success or failure with `Try.fold` or `Option.foreach` builds a closure per branch
+  // before choosing one, on every event; a `match` builds none.
+
+  it("a map node hands a value on allocating only the Success it stores") {
+    val owner = new ManualOwner
+    val source = new FiringSignal
+    val nodes = 4
+    val chain = (1 to nodes).foldLeft(source: Signal[Int])((signal, _) => signal.map(identity))
+    val external = new CountingObserver
+    chain.addObserver(external)(owner)
+    val next = Success(1)
+    val bytes = bytesPerFire(source.fire(next, _))
+    owner.killSubscriptions()
+    withClue(s"$bytes bytes per fire through $nodes map nodes: ") {
+      (bytes / nodes <= 16.0) shouldBe true
+    }
+    (external.sum > 0L) shouldBe true
+  }
+
+  it("an observer, an internal observer and a stream take a Try without allocating") {
+    val next = Success(1)
+    val sum = Array(0L)
+    val observer = Observer[Int](value => sum(0) += value)
+    val observerBytes = bytesPerCall()(() => observer.onTry(next))
+    val internal = InternalObserver[Int]((value, _) => sum(0) += value, (_, _) => ())
+    val internalBytes = bytesPerFire(transaction => InternalObserver.onTry(internal, next, transaction))
+    val owner = new ManualOwner
+    val stream = new FiringStream
+    stream.addObserver(new CountingObserver)(owner)
+    val streamBytes = bytesPerFire(stream.fireAsTry(next, _))
+    owner.killSubscriptions()
+    withClue(s"Observer.onTry $observerBytes, InternalObserver.onTry $internalBytes, stream fireTry $streamBytes bytes: ") {
+      (observerBytes < 1.0 && internalBytes < 1.0 && streamBytes < 1.0) shouldBe true
+    }
+  }
+
+  it("an EventBus writer handed a Try allocates no more than handed the value") {
+    val owner = new ManualOwner
+    val bus = new com.raquo.airstream.eventbus.EventBus[Int]
+    bus.events.addObserver(new CountingObserver)(owner)
+    val next = Success(1)
+    val valueBytes = bytesPerCall()(() => bus.writer.onNext(1))
+    val tryBytes = bytesPerCall()(() => bus.writer.onTry(next))
+    owner.killSubscriptions()
+    withClue(s"onNext $valueBytes, onTry $tryBytes bytes: ") {
+      (tryBytes <= valueBytes) shouldBe true
+    }
   }
 }

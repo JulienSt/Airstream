@@ -2,7 +2,7 @@ package com.raquo.airstream.core
 
 import com.raquo.airstream.core.AirstreamError.ObserverError
 
-import scala.util.Try
+import scala.util.{Failure, Success, Try}
 
 trait WritableStream[A] extends EventStream[A] with WritableObservable[A] {
 
@@ -75,11 +75,10 @@ trait WritableStream[A] extends EventStream[A] with WritableObservable[A] {
     }
   }
 
-  final override protected def fireTry(nextValue: Try[A], transaction: Transaction): Unit = {
-    nextValue.fold(
-      fireError(_, transaction),
-      fireValue(_, transaction)
-    )
+  // A match, not `Try.fold`: the fold's two closures over the transaction are objects per event.
+  final override protected def fireTry(nextValue: Try[A], transaction: Transaction): Unit = nextValue match {
+    case Success(value) => fireValue(value, transaction)
+    case Failure(error) => fireError(error, transaction)
   }
 
 }
