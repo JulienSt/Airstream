@@ -42,7 +42,7 @@ object JsSet {
   final private class Reference(val target: AnyRef) {
     override def equals(other: Any): Boolean = other match {
       case reference: Reference => reference.target eq target
-      case _                    => false
+      case _ => false
     }
     override def hashCode: Int = System.identityHashCode(target)
   }
@@ -57,15 +57,15 @@ object JsSet {
 
   /** Normalise one value into the key JavaScript's `Set` would compare it by. */
   private def key(value: Any): Any = value match {
-    case null                   => Null
-    case text: String           => text
+    case null => Null
+    case text: String => text
     case flag: java.lang.Boolean => flag
     case number: java.lang.Integer => normalise(number.doubleValue)
-    case number: java.lang.Short   => normalise(number.doubleValue)
-    case number: java.lang.Byte    => normalise(number.doubleValue)
-    case number: java.lang.Float   => normalise(number.doubleValue)
-    case number: java.lang.Double  => normalise(number.doubleValue)
-    case other: AnyRef          => new Reference(other)
+    case number: java.lang.Short => normalise(number.doubleValue)
+    case number: java.lang.Byte => normalise(number.doubleValue)
+    case number: java.lang.Float => normalise(number.doubleValue)
+    case number: java.lang.Double => normalise(number.doubleValue)
+    case other: AnyRef => new Reference(other)
   }
 
   private def normalise(number: Double): Number = Number(java.lang.Double.doubleToLongBits(number + 0.0))
