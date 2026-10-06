@@ -15,8 +15,8 @@ import scala.util.{Success, Try}
   * exist to express.
   *
   * Whether the completion callback ever runs is the execution context's business, exactly as it is on the JVM. Nothing
-  * here schedules anything or owns a thread: Airstream's transaction model assumes one thread owning the graph, and a
-  * signal firing from a pool would break that from the outside.
+  * here owns a thread or touches the signal on the callback's thread: the completion is handed to the signal's runtime,
+  * which applies it under its permit (`Runtime.deliver`).
   */
 class FutureSignal[A](
   future: => Future[A]
@@ -42,8 +42,9 @@ class FutureSignal[A](
   }
 
   private def onFutureCompleted(completed: Try[A]): Unit = {
-    // #Note Normally onWillStart must not create transactions or emit values, but it is fine here: the callback always
-    //  arrives asynchronously, long after the onWillStart / onStart chain has finished.
-    Transaction(runtime)(fireTry(completed.map(Some(_)), _))
+    // #Note Normally onWillStart must not create transactions or emit values, but it is fine here: the completion is
+    //  delivered through the runtime, inline only when the callback already runs inside its turn, and a transaction
+    //  created during a shared start waits for the start to finish.
+    runtime.deliver(Transaction(runtime)(fireTry(completed.map(Some(_)), _)))
   }
 }

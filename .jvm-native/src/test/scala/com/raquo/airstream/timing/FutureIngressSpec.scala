@@ -1,7 +1,7 @@
 package com.raquo.airstream.timing
 
 import com.raquo.airstream.UnitSpec
-import com.raquo.airstream.core.{EventStream, Receipt, Runtime}
+import com.raquo.airstream.core.{EventStream, Receipt, Runtime, Signal}
 import com.raquo.airstream.fixtures.ThreadPool
 import com.raquo.airstream.ownership.ManualOwner
 
@@ -66,6 +66,32 @@ class FutureIngressSpec extends UnitSpec {
       inTurn(runtime)(())
       seen.get.map(_._1) shouldBe Vector(1)
       turns.threadNames.contains(seen.get.head._2) shouldBe true
+      turns.reported shouldBe Nil
+      callbacks.reported shouldBe Nil
+    }
+  }
+
+  it("updates a signal from a Future completed on a worker during a held turn in a later turn of the owning runtime") {
+    withPools { (turns, callbacks) =>
+      val runtime = Runtime.scheduled(turns)
+      val promise = Promise[Int]()
+      val seen = new AtomicReference(Vector.empty[(Option[Int], String)])
+      inTurn(runtime) {
+        Signal
+          .fromFuture(promise.future)(callbacks: ExecutionContext)
+          .foreach(value => seen.updateAndGet(_ :+ ((value, Thread.currentThread.getName))))(new ManualOwner)
+      }
+      val (release, held) = holdTurn(runtime)
+      val completedOnWorker = new CountDownLatch(1)
+      promise.success(2)
+      callbacks.execute(() => completedOnWorker.countDown())
+      awaitLatch(completedOnWorker) shouldBe true
+      seen.get.map(_._1) shouldBe Vector(None)
+      release.countDown()
+      held.awaitCompleted(timeout)
+      inTurn(runtime)(())
+      seen.get.map(_._1) shouldBe Vector(None, Some(2))
+      turns.threadNames.contains(seen.get.last._2) shouldBe true
       turns.reported shouldBe Nil
       callbacks.reported shouldBe Nil
     }
