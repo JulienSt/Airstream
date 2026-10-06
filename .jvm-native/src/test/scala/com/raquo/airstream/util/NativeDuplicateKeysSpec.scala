@@ -17,7 +17,7 @@ class NativeDuplicateKeysSpec extends AnyFunSpec with Matchers {
   describe("hasDuplicateKeys") {
 
     it("treats two equal but distinct objects as different keys") {
-      val first  = Key("same")
+      val first = Key("same")
       val second = Key("same")
       first shouldBe second
       hasDuplicateKeys(Seq(first, second))(identity) shouldBe false
@@ -44,7 +44,7 @@ class NativeDuplicateKeysSpec extends AnyFunSpec with Matchers {
       val errors = mutable.Buffer.empty[String]
       DevTools.setSink((level, message, _) => if (level == DiagnosticLevel.Error) errors += message)
       try {
-        val first  = Var(Key("state"))
+        val first = Var(Key("state"))
         val second = Var(Key("state"))
         Var.set(first -> Key("next"), second -> Key("next"))
         errors shouldBe empty

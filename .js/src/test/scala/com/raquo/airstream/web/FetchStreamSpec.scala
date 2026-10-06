@@ -20,9 +20,11 @@ final class FetchStreamSpec extends UnitSpec {
     )
 
     // Keep the request pending. This test exercises subscriptions, not networking.
-    js.Dynamic.global.globalThis.fetch = ((_: String, _: dom.RequestInit) => {
-      new js.Promise[dom.Response]((_, _) => ())
-    }): js.Function2[String, dom.RequestInit, js.Promise[dom.Response]]
+    js.Dynamic.global.globalThis.fetch = (
+      (_: String, _: dom.RequestInit) => {
+        new js.Promise[dom.Response]((_, _) => ())
+      }
+    ): js.Function2[String, dom.RequestInit, js.Promise[dom.Response]]
 
     try {
       val stream = FetchStream.get("https://example.invalid", _.abortStream(abortSource))
@@ -43,12 +45,14 @@ final class FetchStreamSpec extends UnitSpec {
     val requestSignals = mutable.Buffer.empty[dom.AbortSignal]
     val abortedAtRequest = mutable.Buffer.empty[Boolean]
 
-    js.Dynamic.global.globalThis.fetch = ((_: String, init: dom.RequestInit) => {
-      val signal = init.signal.get
-      requestSignals += signal
-      abortedAtRequest += signal.aborted
-      new js.Promise[dom.Response]((_, _) => ())
-    }): js.Function2[String, dom.RequestInit, js.Promise[dom.Response]]
+    js.Dynamic.global.globalThis.fetch = (
+      (_: String, init: dom.RequestInit) => {
+        val signal = init.signal.get
+        requestSignals += signal
+        abortedAtRequest += signal.aborted
+        new js.Promise[dom.Response]((_, _) => ())
+      }
+    ): js.Function2[String, dom.RequestInit, js.Promise[dom.Response]]
 
     try {
       val stream = FetchStream.get("https://example.invalid", _.abortOnStop())

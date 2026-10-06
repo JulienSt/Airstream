@@ -3,7 +3,7 @@ package com.raquo.airstream.flatten
 import com.raquo.airstream.UnitSpec
 import com.raquo.airstream.core.{EventStream, Observer}
 import com.raquo.airstream.eventbus.EventBus
-import com.raquo.airstream.fixtures.{Calculation, Effect, TestSource, TestableOwner}
+import com.raquo.airstream.fixtures.{Calculation, Effect, TestableOwner, TestSource}
 import com.raquo.airstream.flatten.FlattenStrategy.SwitchStreamStrategy
 import com.raquo.airstream.state.Var
 

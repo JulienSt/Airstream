@@ -60,7 +60,7 @@ class WithCurrentValueOfPatternMatchSpec extends UnitSpec {
         .withCurrentValueOf(preset.signal, maybeA.signal, maybeB.signal)
         .map {
           case (n, p, Some(a), Some(b)) => s"$n-$p-$a-$b"
-          case _                        => "none"
+          case _ => "none"
         }
 
     stream.addObserver(Observer(results += _))

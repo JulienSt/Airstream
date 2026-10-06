@@ -3,7 +3,7 @@ package com.raquo.airstream.flatten
 import com.raquo.airstream.UnitSpec
 import com.raquo.airstream.core.{AirstreamError, EventStream, Observer, Signal}
 import com.raquo.airstream.eventbus.EventBus
-import com.raquo.airstream.fixtures.{Effect, ExpectedError, TestSource, TestableOwner}
+import com.raquo.airstream.fixtures.{Effect, ExpectedError, TestableOwner, TestSource}
 import com.raquo.airstream.state.{Val, Var}
 import org.scalatest.BeforeAndAfter
 
