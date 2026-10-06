@@ -16,12 +16,18 @@ class CustomSignalSource[A](
   makeConfig: (SetCurrentValue[A], GetCurrentValue[A], GetStartIndex, GetIsStarted) => CustomSource.Config
 ) extends WritableSignal[A] with CustomSource[A] {
 
+  // The setter is the source's ingress: called from any thread, it delivers the value through the runtime.
   override protected val config: Config = makeConfig(
-    value => Transaction(runtime)(fireTry(value, _)),
+    value => runtime.deliver(setInTransaction(value)),
     () => tryNow(),
     () => startIndex,
     () => isStarted
   )
+
+  /** Write `value` in a new transaction; runs inside the runtime. */
+  private def setInTransaction(value: Try[A]): Unit = {
+    Transaction(runtime)(fireTry(value, _))
+  }
 
   override protected def currentValueFromParent(): Try[A] = getInitialValue
 }
