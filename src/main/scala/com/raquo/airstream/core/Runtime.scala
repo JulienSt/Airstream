@@ -293,6 +293,18 @@ final class Runtime private (
     }
   }
 
+  /** Report a bridge message applied in this runtime to the trace, when one is installed. */
+  private[airstream] def traceBridgeMessageDelivered(sequence: Long): Unit = {
+    if (sink ne null) {
+      sink.bridgeMessageDelivered(this, sequence)
+    }
+  }
+
+  /** True when `submit` from another thread queues the command instead of running it on that thread: a scheduled or a
+    * dispatched runtime. A bridge delivers only into such a runtime.
+    */
+  private[airstream] def admitsSubmissions: Boolean = mailbox ne null
+
   /** Report a requested external-observer removal to the trace, when one is installed. */
   private[airstream] def traceRemovalRequested(observer: Observer[?]): Unit = {
     if (sink ne null) {

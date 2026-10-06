@@ -35,6 +35,9 @@ trait RuntimeTrace {
   /** An external observer was removed from its observable. */
   def removalApplied(runtime: Runtime, observer: Observer[?]): Unit = ()
 
+  /** A bridge applied its message `sequence` in `runtime`, the bridge's target. */
+  def bridgeMessageDelivered(runtime: Runtime, sequence: Long): Unit = ()
+
   /** `runtime` moved to `RuntimeState.Failed` because of `cause`. */
   def runtimeFailed(runtime: Runtime, cause: Throwable): Unit = ()
 }
