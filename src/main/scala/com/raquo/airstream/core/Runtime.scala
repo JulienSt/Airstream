@@ -587,6 +587,11 @@ final class Runtime private (
     lastUpdateId
   }
 
+  /** Let the next update id follow `lastId`: the test-only counter start places wraparound inside a scenario. */
+  private[airstream] def continueUpdateIdsAfter(lastId: Int): Unit = run {
+    lastUpdateId = lastId
+  }
+
   /** Add a callback for errors this runtime's graphs leave unhandled. The default runtime starts with
     * `AirstreamError.consoleErrorCallback`; a confined runtime starts with a copy of the default runtime's callbacks.
     */
