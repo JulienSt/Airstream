@@ -104,6 +104,11 @@ final class RuntimeTimers(private val runtime: Runtime) {
     */
   def now(): Double = currentTime
 
+  /** Cancel every waiting callback; the runtime's close calls this under the permit. */
+  def cancelAll(): Unit = runtime.run {
+    pending.clear()
+  }
+
   /** Forget every waiting callback and reset the clock. Exists for tests, which need to start from a known queue. */
   def clearAll(): Unit = runtime.run {
     pending.clear()

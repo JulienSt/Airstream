@@ -3,6 +3,7 @@ package com.raquo.airstream.platform
 import com.raquo.airstream.core.Runtime
 import com.raquo.airstream.core.AirstreamError.CrossRuntimeEdge
 
+import scala.collection.mutable
 import scala.scalajs.js
 
 /** Delayed callbacks of one runtime on Scala.js: the event loop's own timers, with each callback entering its runtime.
@@ -19,12 +20,29 @@ final class RuntimeTimers(private val runtime: Runtime) {
     * @return
     *   a handle that cancels it
     */
-  def setTimeout(delayMillis: Double)(body: => Unit): RuntimeTimers.TimerHandle =
-    new RuntimeTimers.TimerHandle(this, js.timers.setTimeout(delayMillis)(runtime.deliver(body)))
+  def setTimeout(delayMillis: Double)(body: => Unit): RuntimeTimers.TimerHandle = {
+    var handle: RuntimeTimers.TimerHandle = null
+    handle = new RuntimeTimers.TimerHandle(this, js.timers.setTimeout(delayMillis)(runtime.deliver(fire(handle, body))))
+    liveTimeouts += handle
+    handle
+  }
+
+  /** The timeouts that have not fired or been cleared, so the runtime's close can cancel them. */
+  private val liveTimeouts: mutable.HashSet[RuntimeTimers.TimerHandle] = mutable.HashSet.empty
+
+  /** The intervals that have not been cleared, so the runtime's close can cancel them. */
+  private val liveIntervals: mutable.HashSet[RuntimeTimers.IntervalHandle] = mutable.HashSet.empty
+
+  /** Inside the runtime: a timeout that fires is no longer live, then its body runs. */
+  private def fire(handle: RuntimeTimers.TimerHandle, body: => Unit): Unit = {
+    liveTimeouts -= handle
+    body
+  }
 
   /** Cancel a scheduled callback. Accepts a handle that already fired, because a caller cannot always know. */
   def clearTimeout(handle: RuntimeTimers.TimerHandle): Unit = {
     requireOwn(handle.owner)
+    liveTimeouts -= handle
     js.timers.clearTimeout(handle.raw)
   }
 
@@ -33,13 +51,25 @@ final class RuntimeTimers(private val runtime: Runtime) {
     * @return
     *   a handle that cancels every future repetition
     */
-  def setInterval(intervalMillis: Double)(body: => Unit): RuntimeTimers.IntervalHandle =
-    new RuntimeTimers.IntervalHandle(this, js.timers.setInterval(intervalMillis)(runtime.deliver(body)))
+  def setInterval(intervalMillis: Double)(body: => Unit): RuntimeTimers.IntervalHandle = {
+    val handle = new RuntimeTimers.IntervalHandle(this, js.timers.setInterval(intervalMillis)(runtime.deliver(body)))
+    liveIntervals += handle
+    handle
+  }
 
   /** Cancel a repeating callback. Accepts a handle that was already cancelled. */
   def clearInterval(handle: RuntimeTimers.IntervalHandle): Unit = {
     requireOwn(handle.owner)
+    liveIntervals -= handle
     js.timers.clearInterval(handle.raw)
+  }
+
+  /** Cancel every timeout and interval still live; the runtime's close calls this under the permit. */
+  def cancelAll(): Unit = {
+    liveTimeouts.foreach(handle => js.timers.clearTimeout(handle.raw))
+    liveIntervals.foreach(handle => js.timers.clearInterval(handle.raw))
+    liveTimeouts.clear()
+    liveIntervals.clear()
   }
 
   /** Reject a handle of another runtime's timers: the event loop numbers every timer of the page in one sequence,

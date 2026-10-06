@@ -415,6 +415,7 @@ final class Runtime private (
     val closing = JsArray[TaskScope]()
     scopes.forEach(closing.push(_))
     closing.forEach(scope => releasing(scope.close()))
+    releasing(timers.cancelAll())
   }
 
   /** Run one cleanup step; a failure is reported and the cleanup goes on without attempting rollback. */

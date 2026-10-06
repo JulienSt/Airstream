@@ -58,4 +58,15 @@ class TimerIngressSpec extends UnitSpec {
     outcome.get.map(_.getClass) shouldBe Some(classOf[ForeignThreadEntry])
     runtime.timers.pendingCount shouldBe 0
   }
+
+  it("cancels a runtime's pending timers in its close") {
+    val runtime = Runtime.confined()
+    val pendingAfterClose = runtime.run {
+      runtime.timers.setTimeout(5)(())
+      runtime.timers.setInterval(5)(())
+      runtime.close()
+      runtime.timers.pendingCount
+    }
+    pendingAfterClose shouldBe 0
+  }
 }
