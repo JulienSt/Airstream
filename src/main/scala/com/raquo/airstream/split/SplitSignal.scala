@@ -139,7 +139,10 @@ class SplitSignal[M[_], Input, Output, Key](
                   (maybeMemoizedValue match {
                     case Some(memoizedValue) =>
                       val memoizedParentLastUpdateId = memoizedValue._4
-                      if (Protected.lastUpdateId(parent) > memoizedParentLastUpdateId) {
+                      // Compared for inequality, not with `>`: ids wrap from Int.MaxValue to 1, so a newer update can
+                      // carry a smaller id (UpdateIdSemanticsSpec). Below the wrap both comparisons agree, since
+                      // the memo only ever stores an id the parent already had.
+                      if (Protected.lastUpdateId(parent) != memoizedParentLastUpdateId) {
                         // memoized storage does not have the latest data
                         //  - this can happen when individual ChildSplitSignal is active
                         //    while the SplitSignal is stopped (has no listeners)

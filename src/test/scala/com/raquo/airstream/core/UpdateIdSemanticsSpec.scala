@@ -12,7 +12,9 @@ import scala.collection.mutable
   *
   * Each scenario is run once from a fresh counter and once from every start in the last stretch before the wrap, so the
   * wrap falls between every pair of its updates; the traces must be equal. No universal monotonicity is assumed: the
-  * counter wraps exactly as it did before runtimes existed (`Signal.nextUpdateId` upstream), which the last case pins.
+  * counter wraps exactly as it did before runtimes existed (`Signal.nextUpdateId` upstream), which the last case pins. The
+  * split child that outlives its split is the case that assumed monotonicity: its staleness check compared ids with `>`
+  * and skipped an update whose id had wrapped.
   */
 class UpdateIdSemanticsSpec extends UnitSpec {
 
@@ -114,6 +116,33 @@ class UpdateIdSemanticsSpec extends UnitSpec {
     split.flatMapSwitch(children => Signal.combineSeq(children)).foreach(labels => log += s"again ${labels.mkString(",")}")(owner)
     owner.killSubscriptions()
     log.toList
+  }
+
+  /** A child signal outlives its split: the split is stopped while the child keeps an observer, so the child pulls the
+    * split's memoized input and decides by comparing update ids whether that memo is stale.
+    */
+  private val splitChildOutlivesSplit: () => Seq[String] = () => {
+    val log = mutable.Buffer[String]()
+    val splitOwner = new ManualOwner
+    val childOwner = new ManualOwner
+    val items = Var(List(Item(1, "a")))
+    val children = mutable.Buffer[Signal[Item]]()
+    val split = items.signal.splitSeq(_.id) { item =>
+      children += item
+      item.key
+    }
+    split.foreach(keys => log += s"keys ${keys.mkString(",")}")(splitOwner)
+    children.head.foreach(item => log += s"child ${item.label}")(childOwner)
+    splitOwner.killSubscriptions()
+    items.set(List(Item(1, "b")))
+    items.set(List(Item(1, "c")))
+    log += s"child now ${children.head.observe(childOwner).now().label}"
+    childOwner.killSubscriptions()
+    log.toList
+  }
+
+  it("a split child that outlives its stopped split reads the same inputs across the wrap") {
+    sameTraceAcrossTheWrap(splitChildOutlivesSplit)
   }
 
   it("restart reads the same missed and unmissed updates whatever the counter stands at, across the wrap") {
