@@ -120,7 +120,7 @@ final private[core] class SourceEndpoint[A](sourceRuntime: Runtime, target: Targ
     sourceRuntime.holdBridgeSource(this)
     // Admitted before the snapshot. A refusal needs no handling here: the snapshot is refused the same way.
     target.hold()
-    observable.addObserver(Observer.fromTry[A](send))(owner)
+    observable.addObserver(Observer.fromTry[A](send(_)))(owner)
   }
 
   /** In the source turn: number the notification and hand it to the target runtime. */
