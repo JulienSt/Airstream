@@ -8,7 +8,7 @@ package com.raquo.airstream.platform
   *
   * The slot is cleared with `remove` rather than set to null so that a pool thread does not keep an empty entry alive.
   */
-final class ThreadSlot[A <: AnyRef] {
+private[airstream] final class ThreadSlot[A <: AnyRef] {
 
   private val slot: ThreadLocal[A] = new ThreadLocal[A]
 

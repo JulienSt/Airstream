@@ -5,7 +5,7 @@ package com.raquo.airstream.platform
   * The class exists so the shared scheduler is written once against the surface the threaded platforms provide; here
   * the compare-and-set is an ordinary check-then-write, which no other thread can interleave.
   */
-final class AtomicCell[A <: AnyRef](initial: A) {
+private[airstream] final class AtomicCell[A <: AnyRef](initial: A) {
 
   private var value: A = initial
 

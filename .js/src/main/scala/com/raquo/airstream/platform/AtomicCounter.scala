@@ -1,7 +1,7 @@
 package com.raquo.airstream.platform
 
 /** One 64-bit counter, on a platform with a single thread: a plain field. */
-final class AtomicCounter {
+private[airstream] final class AtomicCounter {
 
   private var value: Long = 0L
 

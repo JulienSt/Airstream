@@ -3,7 +3,7 @@ package com.raquo.airstream.platform
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** One boolean several threads claim and release: the drain claim of a scheduled runtime's mailbox. */
-final class AtomicFlag {
+private[airstream] final class AtomicFlag {
 
   private val flag: AtomicBoolean = new AtomicBoolean(false)
 

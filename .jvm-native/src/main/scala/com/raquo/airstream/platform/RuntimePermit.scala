@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicReference
   * Reentrancy needs no counter here: the runtime checks `isHeldByCurrentThread` first and runs a nested body directly,
   * so only the outermost entry acquires and releases.
   */
-final class RuntimePermit private (bound: Thread, admitsEntry: Boolean) {
+private[airstream] final class RuntimePermit private (bound: Thread, admitsEntry: Boolean) {
 
   private val holder: AtomicReference[Thread] = new AtomicReference[Thread](null)
 
@@ -74,7 +74,7 @@ final class RuntimePermit private (bound: Thread, admitsEntry: Boolean) {
   private def isBoundToOrUnbound(thread: Thread): Boolean = (bound eq null) || (bound eq thread)
 }
 
-object RuntimePermit {
+private[airstream] object RuntimePermit {
 
   /** A permit any thread may take while it is free; one thread at a time. */
   def floating(): RuntimePermit = new RuntimePermit(bound = null, admitsEntry = true)

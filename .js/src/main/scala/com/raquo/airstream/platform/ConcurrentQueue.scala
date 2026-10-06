@@ -7,7 +7,7 @@ import scala.collection.mutable
   * Producers and the drainer are the same thread here, interleaved only by the event loop between tasks, so no
   * publication is needed; the class keeps the shared scheduler written once.
   */
-final class ConcurrentQueue[A <: AnyRef] {
+private[airstream] final class ConcurrentQueue[A <: AnyRef] {
 
   private val queue: mutable.ArrayDeque[A] = mutable.ArrayDeque.empty
 

@@ -8,7 +8,7 @@ package com.raquo.airstream.platform
   * direct factories build the same permit. A scheduled permit admits no synchronous entry: the graph is reached through
   * `submit`, and the mailbox's drainer claims the permit for each turn.
   */
-final class RuntimePermit private (admitsEntry: Boolean) {
+private[airstream] final class RuntimePermit private (admitsEntry: Boolean) {
 
   private var held: Boolean = false
 
@@ -54,7 +54,7 @@ final class RuntimePermit private (admitsEntry: Boolean) {
   def holderName: Option[String] = if (held) Some("main") else None
 }
 
-object RuntimePermit {
+private[airstream] object RuntimePermit {
 
   /** The single-thread permit; floating and bound are the same thing here. */
   def floating(): RuntimePermit = new RuntimePermit(admitsEntry = true)

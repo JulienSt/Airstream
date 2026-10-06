@@ -8,7 +8,7 @@ import java.util.concurrent.atomic.AtomicReference
   * that loses the race retries or is turned away, it never waits, and a drainer's claim is one
   * atomic step the M1 model can name. Writes publish to the next reader through the atomic.
   */
-final class AtomicCell[A <: AnyRef](initial: A) {
+private[airstream] final class AtomicCell[A <: AnyRef](initial: A) {
 
   private val ref: AtomicReference[A] = new AtomicReference[A](initial)
 

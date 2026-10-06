@@ -6,7 +6,7 @@ package com.raquo.airstream.platform
   * that was entered last and not yet exited. The class exists so the shared core is written once against the same
   * surface the threaded platforms provide.
   */
-final class ThreadSlot[A <: AnyRef] {
+private[airstream] final class ThreadSlot[A <: AnyRef] {
 
   private var value: A = null.asInstanceOf[A]
 
