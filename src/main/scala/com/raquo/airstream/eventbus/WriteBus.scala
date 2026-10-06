@@ -47,19 +47,35 @@ class WriteBus[A](
     filterBus
   }
 
-  override def onNext(nextValue: A): Unit = stream.runtime.run {
-    if (stream.runtime.eventBusIsStartedFix155 || stream.isStarted) {
-      // #Note: See https://github.com/raquo/Airstream/issues/155 about isStarted check
+  // With the issue-155 fix on (the default) the stream decides whether it is started inside the transaction it creates, and
+  // that transaction is the entry into the runtime, so an emission enters once and allocates no closure for an entry of its
+  // own. Only the legacy setting reads `isStarted` here, which is graph state and therefore read inside `run`.
+
+  override def onNext(nextValue: A): Unit = {
+    if (stream.runtime.eventBusIsStartedFix155) {
       // @TODO[Integrity] We rely on the knowledge that EventBusStream discards the transaction it's given. Laaaame
       InternalObserver.onNext(stream, nextValue, transaction = null)
+    } else {
+      // #Note: See https://github.com/raquo/Airstream/issues/155 about isStarted check
+      stream.runtime.run {
+        if (stream.isStarted) {
+          InternalObserver.onNext(stream, nextValue, transaction = null)
+        }
+      }
     }
   }
 
-  override def onError(nextError: Throwable): Unit = stream.runtime.run {
-    if (stream.runtime.eventBusIsStartedFix155 || stream.isStarted) {
-      // #Note: See https://github.com/raquo/Airstream/issues/155 about isStarted check
+  override def onError(nextError: Throwable): Unit = {
+    if (stream.runtime.eventBusIsStartedFix155) {
       // @TODO[Integrity] We rely on the knowledge that EventBusStream discards the transaction it's given. Laaaame
       InternalObserver.onError(stream, nextError, transaction = null)
+    } else {
+      // #Note: See https://github.com/raquo/Airstream/issues/155 about isStarted check
+      stream.runtime.run {
+        if (stream.isStarted) {
+          InternalObserver.onError(stream, nextError, transaction = null)
+        }
+      }
     }
   }
 
