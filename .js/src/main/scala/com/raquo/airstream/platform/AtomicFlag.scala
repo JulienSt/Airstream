@@ -1,7 +1,7 @@
 package com.raquo.airstream.platform
 
 /** One boolean with a compare-and-set, on a platform with a single thread: a plain field. */
-private[airstream] final class AtomicFlag {
+final private[airstream] class AtomicFlag {
 
   private var value: Boolean = false
 

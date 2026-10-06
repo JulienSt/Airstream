@@ -8,7 +8,7 @@ package com.raquo.airstream.platform
   * direct factories build the same permit. A scheduled permit admits no synchronous entry: the graph is reached through
   * `submit`, and the mailbox's drainer claims the permit for each turn.
   */
-private[airstream] final class RuntimePermit private (admitsEntry: Boolean) {
+final private[airstream] class RuntimePermit private (admitsEntry: Boolean) {
 
   private var held: Boolean = false
 

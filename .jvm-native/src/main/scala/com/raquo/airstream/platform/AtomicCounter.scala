@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.AtomicLong
   * Ids are 64-bit so a runtime never reuses one within any realistic lifetime; the
   * capacity count is advanced by compare-and-set so admission at the limit is decided atomically.
   */
-private[airstream] final class AtomicCounter {
+final private[airstream] class AtomicCounter {
 
   private val value: AtomicLong = new AtomicLong(0L)
 

@@ -8,7 +8,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
   * visible, with everything written before it, to the thread that polls it. Appending never blocks and never waits for
   * the drainer, which is what lets a producer be turned away or accepted without ever holding the runtime up.
   */
-private[airstream] final class ConcurrentQueue[A <: AnyRef] {
+final private[airstream] class ConcurrentQueue[A <: AnyRef] {
 
   private val queue: ConcurrentLinkedQueue[A] = new ConcurrentLinkedQueue[A]()
 
