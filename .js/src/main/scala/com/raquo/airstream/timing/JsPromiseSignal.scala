@@ -25,22 +25,24 @@ class JsPromiseSignal[A](promise: => js.Promise[A]) extends WritableSignal[Optio
     if (!promiseSubscribed) {
       promiseSubscribed = true
       lazyPromise.asInstanceOf[js.Dynamic].applyDynamic("then")( // #TODO[Scala] Can't use scala.js `then` method because https://github.com/scala/scala3/issues/20476
+        // The callbacks run from the event loop, outside every turn: the settlement is delivered through the owning
+        // runtime.
         (
-          (nextValue: A) => {
-            onPromiseResolved(Success(nextValue))
-          }
+          (nextValue: A) => runtime.deliver(onPromiseResolved(Success(nextValue)))
         ): js.Function1[A, Unit],
         (
-          (rawException: Any) => {
-            val nextError = rawException match {
-              case th: Throwable => th
-              case _ => js.JavaScriptException(rawException)
-            }
-            onPromiseResolved(Failure(nextError))
-          }
+          (rawException: Any) => runtime.deliver(onPromiseRejected(rawException))
         ): js.Function1[Any, Unit]
       )
     }
+  }
+
+  private def onPromiseRejected(rawException: Any): Unit = {
+    val nextError = rawException match {
+      case th: Throwable => th
+      case _ => js.JavaScriptException(rawException)
+    }
+    onPromiseResolved(Failure(nextError))
   }
 
   private def onPromiseResolved(nextPromiseValue: Try[A]): Unit = {

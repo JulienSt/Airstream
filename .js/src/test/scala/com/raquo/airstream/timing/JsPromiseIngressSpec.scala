@@ -1,7 +1,7 @@
 package com.raquo.airstream.timing
 
 import com.raquo.airstream.AsyncUnitSpec
-import com.raquo.airstream.core.{EventStream, Runtime}
+import com.raquo.airstream.core.{EventStream, Runtime, Signal}
 import com.raquo.airstream.ownership.ManualOwner
 
 import scala.collection.mutable
@@ -21,6 +21,17 @@ class JsPromiseIngressSpec extends AsyncUnitSpec {
     }
     delay(10) {
       seen.toList shouldBe List(3)
+    }
+  }
+
+  it("updates a promise signal in a scheduled runtime in a turn of that runtime") {
+    val runtime = Runtime.scheduled(executionContext)
+    val seen = mutable.Buffer[Option[Int]]()
+    runtime.submit {
+      Signal.fromJsPromise(js.Promise.resolve[Int](4)).foreach(seen += _)(new ManualOwner)
+    }
+    delay(10) {
+      seen.toList shouldBe List(None, Some(4))
     }
   }
 }
