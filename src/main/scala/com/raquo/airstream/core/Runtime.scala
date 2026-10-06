@@ -1,7 +1,7 @@
 package com.raquo.airstream.core
 
-import com.raquo.airstream.core.AirstreamError.{ClosedRuntimeEntry, CrossRuntimeAccess, CrossRuntimeEdge, DeliveryRejected, ForeignThreadEntry, ScheduledRuntimeEntry, SubmissionRejected, WaitInsideTurn}
-import com.raquo.airstream.platform.{AtomicCell, AtomicCounter, DevTools, DiagnosticLevel, DiagnosticSinks, JsArray, RuntimePermit, RuntimeTimers, ThreadSlot}
+import com.raquo.airstream.core.AirstreamError.{DeliveryRejected, SubmissionRejected, WaitInsideTurn}
+import com.raquo.airstream.platform.{AtomicCounter, DevTools, DiagnosticLevel, DiagnosticSinks, JsArray, RuntimePermit, RuntimeTimers}
 
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.control.NonFatal
@@ -23,27 +23,31 @@ import scala.util.control.NonFatal
   * next thread may enter afterwards. A confined runtime is bound to the thread that created it. Scala.js has one thread,
   * so there the permit only tracks whether the runtime is entered.
   *
+  * What admits a thread is the runtime's [[RuntimeGate]]. The default runtime's gate is its permit alone; the permits, the
+  * per-thread context and the mailbox that exist only because a second runtime can exist come with the gate the factories
+  * build, so a program that never calls them links and runs none of it.
+  *
   * A scheduled runtime (`Runtime.scheduled`) has a mailbox instead: `submit` admits a command from any thread and its
   * executor runs the turns, one at a time; `run` is rejected there unless it is reentrant, inside a
   * turn. Both strategies share the turn: a command runs under the permit with this runtime as the current context, and
   * its receipt settles after the command's synchronous work has drained.
   */
 final class Runtime private (
-  permit: RuntimePermit,
-  isDefault: Boolean,
-  initialUnhandledErrorCallbacks: JsArray[Throwable => Unit],
-  mailboxFor: Runtime => Mailbox
+  gateFor: Runtime => RuntimeGate,
+  initialUnhandledErrorCallbacks: JsArray[Throwable => Unit]
 ) extends Named {
+
+  /** How this runtime admits a thread. Built first by the function its factory passes in, never chosen by a constructor branch:
+    * only the factories contain `new ManagedGate`, so a program that calls none of them instantiates one gate class.
+    */
+  private val gate: RuntimeGate = gateFor(this)
 
   private val unhandledErrorCallbacks: JsArray[Throwable => Unit] = initialUnhandledErrorCallbacks
 
-  /** The mailbox of a scheduled runtime; null for a direct one, which runs a submitted command at once.
-    *
-    * Built by the function the scheduled and dispatched factories pass in, never by a constructor branch: on Scala.js a
-    * `new Mailbox` that only those factories contain keeps the mailbox, its promises and `scala.concurrent` out of every
-    * program that never creates a scheduled runtime.
+  /** The mailbox of a scheduled runtime; null for a direct one, which runs a submitted command at once. Inline, so a program
+    * whose only gate is the default one folds every mailbox branch away and links no mailbox.
     */
-  private[airstream] val mailbox: Mailbox = if (mailboxFor eq null) null else mailboxFor(this)
+  @inline private[airstream] def mailbox: Mailbox = gate.mailbox
 
   /** Ids of the commands submitted to this runtime, direct or scheduled; 64-bit, never reused. */
   private val commandIds: AtomicCounter = new AtomicCounter
@@ -62,10 +66,7 @@ final class Runtime private (
   /** Where this runtime is in its lifecycle. A direct runtime stays open; a scheduled runtime fails when its scheduler
     * cannot continue.
     */
-  def state: RuntimeState = if (mailbox eq null) directState.get else mailbox.state
-
-  /** The lifecycle of a direct runtime; a scheduled runtime's lives in its mailbox. */
-  private val directState: AtomicCell[RuntimeState] = new AtomicCell[RuntimeState](RuntimeState.Open)
+  def state: RuntimeState = gate.state
 
   /** Execute `body` inside this runtime: on the permit-holding thread with this runtime as the current context.
     *
@@ -73,35 +74,25 @@ final class Runtime private (
     * @throws CrossRuntimeAccess when the calling thread is inside another runtime's turn
     */
   def run[A](body: => A): A = {
-    if (permit.isHeldByCurrentThread) {
+    if (gate.isHeldByCurrentThread) {
       body
     } else {
-      enter(body)
+      val entry = gate.tryEnter(this)
+      if (entry eq null) {
+        throw gate.refusal(this)
+      }
+      entered(gate)(entry, body)
     }
   }
 
-  private def enter[A](body: => A): A = {
-    val context = Runtime.context.cell
-    val active = context.value
-    if (active ne null) {
-      // Checked before the permit so that a runtime never waits on, or takes, another runtime's permit from inside a turn.
-      throw CrossRuntimeAccess(active = active, target = this)
-    }
-    if (!permit.acquire()) {
-      throw entryRejection
-    }
-    entered(context, body)
-  }
-
-  /** Run `body` with the permit just acquired by the calling thread: install the context, run, restore both on every exit.
-    * The calling thread's context cell is looked up once by the caller and written directly here.
-    */
-  private def entered[A](context: ThreadSlot.Cell[Runtime], body: => A): A = {
-    installed(context)
+  /** Run `body` in the outermost entry `entry` of `g` just made for the calling thread, and exit it whatever the body does. */
+  private def entered[A](g: RuntimeGate)(entry: g.Entry, body: => A): A = {
+    traceAcquired()
     try {
       body
     } finally {
-      exited(context)
+      g.exit(entry)
+      traceReleased()
     }
   }
 
@@ -109,38 +100,32 @@ final class Runtime private (
     * that path allocates no closure and makes no call through a function value.
     */
   private[airstream] def schedule(transaction: Transaction): Unit = {
-    if (permit.isHeldByCurrentThread) {
+    if (gate.isHeldByCurrentThread) {
       transaction.scheduleInside(this)
     } else {
-      val context = Runtime.context.cell
-      val active = context.value
-      if (active ne null) {
-        throw CrossRuntimeAccess(active = active, target = this)
+      val entry = gate.tryEnter(this)
+      if (entry eq null) {
+        throw gate.refusal(this)
       }
-      if (!permit.acquire()) {
-        throw entryRejection
-      }
-      installed(context)
+      traceAcquired()
       try {
         transaction.scheduleInside(this)
       } finally {
-        exited(context)
+        gate.exit(entry)
+        traceReleased()
       }
     }
   }
 
-  /** The permit was just acquired by the calling thread: install this runtime as its context. */
-  private def installed(context: ThreadSlot.Cell[Runtime]): Unit = {
-    context.value = this
+  /** The calling thread just took the permit and installed the context: report it to the trace, when one is installed. */
+  private def traceAcquired(): Unit = {
     if (sink ne null) {
       sink.permitAcquired(this)
     }
   }
 
-  /** Restore the calling thread's context and give the permit back, on every exit of an entry. */
-  private def exited(context: ThreadSlot.Cell[Runtime]): Unit = {
-    context.value = null
-    permit.release()
+  /** The calling thread just cleared the context and gave the permit back: report it to the trace, when one is installed. */
+  private def traceReleased(): Unit = {
     if (sink ne null) {
       sink.permitReleased(this)
       sink.contextRestored(this)
@@ -165,19 +150,17 @@ final class Runtime private (
     * this runtime's unhandled-error channel, because the callback has no receipt to fail.
     */
   private[airstream] def deliver(body: => Unit): Unit = {
-    if (permit.isHeldByCurrentThread) {
+    if (gate.isHeldByCurrentThread) {
       body
     } else if (mailbox ne null) {
       val receipt = mailbox.submit(commandIds.incrementAndGet(), () => deliveredInTurn(body))
       receipt.accepted.value.flatMap(_.failed.toOption).foreach(refuseDelivery)
     } else {
-      val active = Runtime.context.get
-      if (active ne null) {
-        refuseDelivery(CrossRuntimeAccess(active = active, target = this))
-      } else if (!permit.acquire()) {
-        refuseDelivery(entryRejection)
+      val entry = gate.tryEnter(this)
+      if (entry eq null) {
+        refuseDelivery(gate.refusal(this))
       } else {
-        entered(Runtime.context.cell, body)
+        entered(gate)(entry, body)
       }
     }
   }
@@ -198,15 +181,6 @@ final class Runtime private (
     if (!isShutDown) {
       sendUnhandledError(DeliveryRejected(this, cause))
     }
-  }
-
-  /** Why a synchronous entry is refused: a scheduled runtime is entered through `submit`, a direct one belongs to
-    * another thread right now.
-    */
-  private def entryRejection: AirstreamError = {
-    if (state eq RuntimeState.Closed) ClosedRuntimeEntry(this)
-    else if (mailbox ne null) ScheduledRuntimeEntry(this)
-    else ForeignThreadEntry(this)
   }
 
   /** Submit a command to this runtime from any thread. The receipt's `accepted` future is settled
@@ -230,7 +204,7 @@ final class Runtime private (
 
   private def submitDirect(id: Long, body: () => Unit): Receipt = {
     val completed = Promise[Unit]()
-    if (permit.isHeldByCurrentThread) {
+    if (gate.isHeldByCurrentThread) {
       try {
         body()
         completed.success(())
@@ -239,20 +213,14 @@ final class Runtime private (
       }
       new Receipt(id, Future.unit, completed.future)
     } else {
-      val active = Runtime.context.get
-      val rejection =
-        if (active ne null) Some(CrossRuntimeAccess(active = active, target = this))
-        else if (!permit.acquire()) Some(entryRejection)
-        else None
-      rejection match {
-        case Some(cause) =>
-          val rejected = SubmissionRejected(this, cause.getMessage)
-          completed.failure(rejected)
-          new Receipt(id, Future.failed(rejected), completed.future)
-        case None =>
-          val command = new Mailbox.Command(id, body, completed)
-          runClaimedTurn(command)
-          new Receipt(id, Future.unit, completed.future)
+      val entry = gate.tryEnter(this)
+      if (entry eq null) {
+        val rejected = SubmissionRejected(this, gate.refusal(this).getMessage)
+        completed.failure(rejected)
+        new Receipt(id, Future.failed(rejected), completed.future)
+      } else {
+        runClaimedTurn(new Mailbox.Command(id, body, completed), gate)(entry)
+        new Receipt(id, Future.unit, completed.future)
       }
     }
   }
@@ -263,21 +231,22 @@ final class Runtime private (
     *   the turn left the transaction engine torn; the mailbox then fails the runtime
     */
   private[airstream] def executeTurn(command: Mailbox.Command): Unit = {
-    if (!permit.claim()) {
+    val entry = gate.claim(this)
+    if (entry eq null) {
       throw new IllegalStateException(
-        s"${displayName}: a drain ran on thread ${permit.holderName.fold("?")(identity)} while the permit " +
-          permit.boundThreadName.fold("was held")(name => s"is bound to `$name`")
+        s"${displayName}: a drain ran on thread ${gate.holderName.fold("?")(identity)} while the permit " +
+          gate.boundThreadName.fold("was held")(name => s"is bound to `$name`")
       )
     }
-    runClaimedTurn(command)
+    runClaimedTurn(command, gate)(entry)
   }
 
-  /** The turn itself, with the permit already taken by the calling thread: install the context and the command id, run
-    * the body, restore both on every exit, then settle the receipt. The receipt settles after the permit is released, so a
-    * waiter that wakes finds the runtime idle; a fatal error or a torn engine settles the receipt and then propagates.
+  /** The turn itself, with the permit already taken and the context installed by `entry` of `g`: install the command id,
+    * run the body, restore everything on every exit, then settle the receipt. The receipt settles after the permit is
+    * released, so a waiter that wakes finds the runtime idle; a fatal error or a torn engine settles the receipt and then
+    * propagates.
     */
-  private def runClaimedTurn(command: Mailbox.Command): Unit = {
-    Runtime.context.set(this)
+  private def runClaimedTurn(command: Mailbox.Command, g: RuntimeGate)(entry: g.Entry): Unit = {
     activeCommand = command.id
     if (sink ne null) {
       sink.permitAcquired(this)
@@ -290,12 +259,8 @@ final class Runtime private (
       case err: Throwable => failure = err
     } finally {
       activeCommand = Runtime.NoCommand
-      Runtime.context.set(null)
-      permit.release()
-      if (sink ne null) {
-        sink.permitReleased(this)
-        sink.contextRestored(this)
-      }
+      g.exit(entry)
+      traceReleased()
     }
     val torn =
       if (transactions.isClearState) null
@@ -398,13 +363,16 @@ final class Runtime private (
     */
   def close(): Receipt = {
     val id = commandIds.incrementAndGet()
-    if (isDefault) {
-      val rejected = SubmissionRejected(this, "the default runtime cannot be closed")
-      new Receipt(id, Future.failed(rejected), Future.failed(rejected))
-    } else if (mailbox ne null) {
-      new Receipt(id, Future.unit, mailbox.close())
-    } else {
-      closeDirect(id)
+    gate match {
+      case _: DefaultGate =>
+        val rejected = SubmissionRejected(this, "the default runtime cannot be closed")
+        new Receipt(id, Future.failed(rejected), Future.failed(rejected))
+      case managed: ManagedGate =>
+        if (managed.mailbox ne null) {
+          new Receipt(id, Future.unit, managed.mailbox.close())
+        } else {
+          closeDirect(id, managed)
+        }
     }
   }
 
@@ -412,38 +380,33 @@ final class Runtime private (
     * when that thread may enter, inline when it is inside the runtime's own turn (the turn then finishes, and nothing
     * enters after it). A thread that may not enter gets a rejected receipt; a second close finds the runtime closed.
     */
-  private def closeDirect(id: Long): Receipt = {
-    if (directState.get ne RuntimeState.Open) {
+  private def closeDirect(id: Long, managed: ManagedGate): Receipt = {
+    if (managed.state ne RuntimeState.Open) {
       new Receipt(id, Future.unit, Future.unit)
-    } else if (permit.isHeldByCurrentThread) {
-      finishDirectClose()
+    } else if (managed.isHeldByCurrentThread) {
+      finishDirectClose(managed)
       new Receipt(id, Future.unit, Future.unit)
     } else {
-      val active = Runtime.context.get
-      val refusal =
-        if (active ne null) Some(CrossRuntimeAccess(active = active, target = this))
-        else if (!permit.acquire()) Some(entryRejection)
-        else None
-      refusal match {
-        case Some(cause) =>
-          val rejected = SubmissionRejected(this, cause.getMessage)
-          new Receipt(id, Future.failed(rejected), Future.failed(rejected))
-        case None =>
-          entered(Runtime.context.cell, finishDirectClose())
-          new Receipt(id, Future.unit, Future.unit)
+      val entry = managed.tryEnter(this)
+      if (entry eq null) {
+        val rejected = SubmissionRejected(this, managed.refusal(this).getMessage)
+        new Receipt(id, Future.failed(rejected), Future.failed(rejected))
+      } else {
+        entered(managed)(entry, finishDirectClose(managed))
+        new Receipt(id, Future.unit, Future.unit)
       }
     }
   }
 
   /** Under the permit: cut admission, release what the runtime owns, retire the permit, and mark the runtime closed. */
-  private def finishDirectClose(): Unit = {
-    directState.set(RuntimeState.Closing)
+  private def finishDirectClose(managed: ManagedGate): Unit = {
+    managed.advanceDirectState(RuntimeState.Closing)
     traceAdmissionClosed()
     try {
       releaseOwned()
     } finally {
-      permit.retire()
-      directState.set(RuntimeState.Closed)
+      managed.retire()
+      managed.advanceDirectState(RuntimeState.Closed)
       traceClosed()
     }
   }
@@ -453,18 +416,17 @@ final class Runtime private (
     *
     * @throws IllegalStateException when the permit could not be claimed (a dispatcher ran the drain on another thread)
     */
-  private[airstream] def closeResources(): Unit = {
-    if (!permit.claim()) {
+  private[airstream] def closeResources(managed: ManagedGate): Unit = {
+    val entry = managed.claim(this)
+    if (entry eq null) {
       throw new IllegalStateException(s"${displayName}: the close ran on a thread that may not take the permit")
     }
-    Runtime.context.set(this)
     try {
       releaseOwned()
     } finally {
-      Runtime.context.set(null)
       // A dispatched runtime's bound thread could otherwise still enter synchronously.
-      permit.retire()
-      permit.release()
+      managed.retire()
+      managed.exit(entry)
     }
   }
 
@@ -675,35 +637,32 @@ final class Runtime private (
     * @throws ForeignThreadEntry when the permit would refuse the calling thread
     */
   private[airstream] def requireAccess(): Unit = {
-    if (!permit.isHeldByCurrentThread) {
-      val active = Runtime.context.get
-      if (active ne null) {
-        throw CrossRuntimeAccess(active = active, target = this)
-      }
-      if (!permit.mayAcquire) {
-        throw entryRejection
+    if (!gate.isHeldByCurrentThread) {
+      val refusal = gate.accessRefusal(this)
+      if (refusal ne null) {
+        throw refusal
       }
     }
   }
 
   /** True while some thread is inside `run` on this runtime. */
-  def isEntered: Boolean = permit.isHeld
+  def isEntered: Boolean = gate.isHeld
 
   /** The thread that is inside this runtime right now, when there is one. */
-  def holderName: Option[String] = permit.holderName
+  def holderName: Option[String] = gate.holderName
 
   /** The thread this runtime is bound to, when it is bound. */
-  def boundThreadName: Option[String] = permit.boundThreadName
+  def boundThreadName: Option[String] = gate.boundThreadName
 
   override protected def defaultDisplayName: String = {
-    if (isDefault) "Runtime.default" else s"Runtime@${hashCode()}"
+    if (this eq Runtime.default) "Runtime.default" else s"Runtime@${hashCode()}"
   }
 }
 
 object Runtime {
 
-  /** The runtime the current thread has entered, or null between entries. Platform storage: thread-local or a plain slot. */
-  private val context: ThreadSlot[Runtime] = new ThreadSlot[Runtime]
+  /** The default runtime's gate, which also knows whether the program has other runtimes (see [[RuntimeContexts]]). */
+  private val defaultGate: DefaultGate = new DefaultGate
 
   /** The runtime every observable belongs to unless it was created inside another runtime's `run`.
     *
@@ -712,10 +671,8 @@ object Runtime {
     * keeps its behaviour.
     */
   val default: Runtime = new Runtime(
-    RuntimePermit.floating(),
-    isDefault = true,
-    initialUnhandledErrorCallbacks = JsArray(AirstreamError.consoleErrorCallback),
-    mailboxFor = null
+    _ => defaultGate,
+    initialUnhandledErrorCallbacks = JsArray(AirstreamError.consoleErrorCallback)
   )
 
   /** The `activeCommand` value of a thread outside every command. */
@@ -730,7 +687,7 @@ object Runtime {
   /** A new runtime bound to the calling thread: only that thread may enter it, every other thread is rejected before any
     * graph access. On Scala.js the binding is moot and the runtime is simply a separate one.
     */
-  def confined(): Runtime = create(RuntimePermit.boundToCurrentThread(), mailboxFor = null)
+  def confined(): Runtime = create(_ => new ManagedGate(RuntimePermit.boundToCurrentThread(), mailboxFor = null))
 
   /** A new runtime whose turns run on `executor`, one at a time, with the default capacity and drain budget.
     *
@@ -748,7 +705,9 @@ object Runtime {
   def scheduled(executor: ExecutionContext, capacity: Int, turnsPerDrain: Int): Runtime = {
     require(capacity > 0, s"capacity must be positive, got $capacity")
     require(turnsPerDrain > 0, s"turnsPerDrain must be positive, got $turnsPerDrain")
-    create(RuntimePermit.scheduled(), runtime => new Mailbox(runtime, executor, capacity, turnsPerDrain))
+    create(runtime =>
+      new ManagedGate(RuntimePermit.scheduled(), gate => new Mailbox(runtime, gate, executor, capacity, turnsPerDrain))
+    )
   }
 
   /** A new runtime for a UI thread: a scheduled runtime whose dispatcher always runs on the calling thread.
@@ -759,22 +718,39 @@ object Runtime {
     * touching the graph from a foreign thread. Create it on the UI thread.
     */
   def dispatched(dispatcher: ExecutionContext): Runtime =
-    create(RuntimePermit.boundToCurrentThread(), runtime => new Mailbox(runtime, dispatcher, DefaultCapacity, DefaultTurnsPerDrain))
-
-  private def create(permit: RuntimePermit, mailboxFor: Runtime => Mailbox): Runtime = {
-    val runtime = new Runtime(
-      permit,
-      isDefault = false,
-      initialUnhandledErrorCallbacks = copyOf(default.unhandledErrorCallbacks),
-      mailboxFor
+    create(runtime =>
+      new ManagedGate(
+        RuntimePermit.boundToCurrentThread(),
+        gate => new Mailbox(runtime, gate, dispatcher, DefaultCapacity, DefaultTurnsPerDrain)
+      )
     )
+
+  /** A runtime besides the default one, with the gate `gateFor` builds. The program starts tracking the other runtimes' turns
+    * before the runtime exists, so no turn of it can go unseen.
+    */
+  private def create(gateFor: Runtime => RuntimeGate): Runtime = {
+    defaultGate.admitOtherRuntimes()
+    val runtime = new Runtime(gateFor, initialUnhandledErrorCallbacks = copyOf(default.unhandledErrorCallbacks))
     runtime.configureFrom(default)
     runtime
   }
 
+  /** The runtime whose turn the calling thread is inside, or null: another runtime's, which the per-thread slot shows, or the
+    * default runtime's, which its permit shows.
+    */
+  private[airstream] def activeTurn: Runtime = {
+    val other = defaultGate.contexts.activeOther
+    if (other ne null) other
+    else if (defaultGate.isHeldByCurrentThread) default
+    else null
+  }
+
+  /** True when the calling thread is inside a turn of the default runtime. */
+  private[airstream] def isInDefaultTurn: Boolean = defaultGate.isHeldByCurrentThread
+
   /** Reject a blocking wait for `receipt` from inside any runtime's turn, before it blocks. */
   private[airstream] def requireOutsideTurns(receipt: Receipt): Unit = {
-    val active = context.get
+    val active = activeTurn
     if (active ne null) {
       throw WaitInsideTurn(active, receipt)
     }
@@ -829,15 +805,13 @@ object Runtime {
   }
 
   /** Reject an edge between `expected` and `actual` unless they are the same runtime. */
-  private[airstream] def requireSame(expected: Runtime, actual: Runtime): Unit = {
-    if (expected ne actual) {
-      throw CrossRuntimeEdge(Seq(expected, actual))
-    }
+  @inline private[airstream] def requireSame(expected: Runtime, actual: Runtime): Unit = {
+    defaultGate.contexts.requireSame(expected, actual)
   }
 
   /** The runtime whose turn the current thread is inside, or the default runtime when it is inside none. */
   def current: Runtime = {
-    val active = context.get
+    val active = defaultGate.contexts.activeOther
     if (active eq null) default else active
   }
 }

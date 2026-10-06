@@ -2,17 +2,18 @@ package com.raquo.airstream.platform
 
 import java.util.concurrent.atomic.AtomicReference
 
-/** The execution permit of one runtime, on a platform with real threads.
+/** The execution permit of a runtime a factory created (`Runtime.confined`, `scheduled`, `dispatched`), on a platform with
+  * real threads. The default runtime has its own, `DefaultPermit`, which a program without other runtimes links alone.
   *
   * At most one thread holds the permit at a time; that thread may touch the runtime's graph state, every other thread is
   * turned away before it reaches that state. The holder is a single atomic reference rather than a lock on purpose: a
   * rejected thread must never wait, and the ordinary synchronous path must
   * cost no more than one compare-and-set on the way in and one plain write on the way out.
   *
-  * A permit is either bound to one thread for its whole life, which is what `Runtime.confined()` creates, or floating,
-  * which is what the default runtime uses so that an application that touches Airstream from one thread at a time keeps
-  * working whichever thread that is. A bound permit refuses every other thread even while it is free, so only its own
-  * thread ever writes the holder, and it takes the permit with a check and a release store instead of a compare-and-set.
+  * A permit is either bound to one thread for its whole life, which is what `Runtime.confined()` and `Runtime.dispatched` create,
+  * or unbound, which is what a scheduled runtime's drainers on any executor thread take. A bound permit refuses every other
+  * thread even while it is free, so only its own thread ever writes the holder, and it takes the permit with a check and a
+  * release store instead of a compare-and-set.
   *
   * A scheduled permit admits no synchronous entry at all: `acquire` always fails, so `run` from outside a turn is
   * rejected and the graph is reached through `submit`. Only the mailbox's drainer takes it, with `claim`, for one turn.
@@ -62,7 +63,7 @@ final private[airstream] class RuntimePermit private (bound: Thread, admitsEntry
     *
     * A bound permit has a single writer: only its own thread passes the binding, so only that thread ever writes the
     * holder (here, and in `release`, which only the holder calls). Exclusion therefore holds by construction, and a check
-    * followed by a release store takes the permit without the compare-and-set a floating permit needs, whose takers race.
+    * followed by a release store takes the permit without the compare-and-set an unbound permit needs, whose takers race.
     * Foreign threads only read the holder, and every value they can read differs from themselves.
     */
   private def take(current: Thread): Boolean = {
@@ -97,9 +98,6 @@ final private[airstream] class RuntimePermit private (bound: Thread, admitsEntry
 }
 
 private[airstream] object RuntimePermit {
-
-  /** A permit any thread may take while it is free; one thread at a time. */
-  def floating(): RuntimePermit = new RuntimePermit(bound = null, admitsEntry = true)
 
   /** A permit only the calling thread may ever take. */
   def boundToCurrentThread(): RuntimePermit = new RuntimePermit(bound = Thread.currentThread(), admitsEntry = true)

@@ -30,9 +30,12 @@ import scala.util.control.NonFatal
   * When the executor rejects a drain task, at the first schedule or at a reschedule, the runtime fails:
   * admission closes, every queued receipt settles with `RuntimeFailed`, and a producer that enqueued at the same moment
   * settles its own command after it reads the failed state, so no accepted command is stranded.
+  *
+  * @param gate `runtime`'s gate, which builds this mailbox; the close's cleanup claims and retires its permit
   */
 final private[airstream] class Mailbox(
   runtime: Runtime,
+  gate: ManagedGate,
   executor: ExecutionContext,
   capacity: Int,
   turnsPerDrain: Int
@@ -167,7 +170,7 @@ final private[airstream] class Mailbox(
 
   /** On the drainer, holding the claim: run the runtime's cleanup, move to `Closed`, give the claim up, settle the close. */
   private def finishClose(): Unit = {
-    runtime.closeResources()
+    runtime.closeResources(gate)
     lifecycle.compareAndSet(RuntimeState.Closing, RuntimeState.Closed)
     runtime.traceClosed()
     releaseDrain()

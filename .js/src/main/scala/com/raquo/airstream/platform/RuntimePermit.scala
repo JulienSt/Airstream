@@ -1,11 +1,12 @@
 package com.raquo.airstream.platform
 
-/** The execution permit of one runtime, on a platform with a single thread.
+/** The execution permit of a runtime a factory created (`Runtime.confined`, `scheduled`, `dispatched`), on a platform with a
+  * single thread. The default runtime has a lighter one, `DefaultPermit`.
   *
   * There is no foreign thread to turn away, so the permit only remembers whether it is held. That is still needed: the
   * runtime uses it to tell a nested entry (run the body directly) from an outermost one (install the context, run, and
-  * restore it in `finally`), and `Runtime.isEntered` reads it. Binding to a thread is a no-op here, which is why the two
-  * direct factories build the same permit. A scheduled permit admits no synchronous entry: the graph is reached through
+  * restore it in `finally`), and `Runtime.isEntered` reads it. Binding to a thread is a no-op here, so a confined and a
+  * dispatched runtime build the same permit. A scheduled permit admits no synchronous entry: the graph is reached through
   * `submit`, and the mailbox's drainer claims the permit for each turn.
   */
 final private[airstream] class RuntimePermit private (admitsEntry: Boolean) {
@@ -56,10 +57,7 @@ final private[airstream] class RuntimePermit private (admitsEntry: Boolean) {
 
 private[airstream] object RuntimePermit {
 
-  /** The single-thread permit; floating and bound are the same thing here. */
-  def floating(): RuntimePermit = new RuntimePermit(admitsEntry = true)
-
-  /** The single-thread permit; floating and bound are the same thing here. */
+  /** The single-thread permit; binding to the one thread there is changes nothing. */
   def boundToCurrentThread(): RuntimePermit = new RuntimePermit(admitsEntry = true)
 
   /** A permit only the mailbox's drainer claims; a synchronous entry is rejected. */
