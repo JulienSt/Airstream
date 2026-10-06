@@ -39,4 +39,20 @@ class TaskScopeSpec extends UnitSpec {
     seen.toList shouldBe List((Success(42), runtime))
     task.outcome.value shouldBe Some(Success(TaskOutcome.Delivered))
   }
+
+  it("suppresses the result of a task launched before a restart, raises its cancel signal, and delivers the new generation's") {
+    val runtime = Runtime.confined()
+    val executor = new PumpedExecutor
+    val seen = mutable.Buffer[Try[Int]]()
+    val scope = runtime.run(runtime.taskScope())
+    val first = runtime.run(scope.launch(executor)(_ => 1)(seen += _))
+    runtime.run(scope.restart())
+    val second = runtime.run(scope.launch(executor)(_ => 2)(seen += _))
+    first.isCancelRequested shouldBe true
+    second.isCancelRequested shouldBe false
+    executor.runAll() shouldBe 2
+    seen.toList shouldBe List(Success(2))
+    first.outcome.value shouldBe Some(Success(TaskOutcome.Suppressed))
+    second.outcome.value shouldBe Some(Success(TaskOutcome.Delivered))
+  }
 }

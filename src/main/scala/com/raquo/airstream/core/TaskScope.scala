@@ -62,7 +62,18 @@ final class TaskScope private[airstream] (runtime: Runtime) {
   }
 
   /** Begin a new generation: every task launched before is asked to cancel and its result will be suppressed. */
-  def restart(): Unit = ???
+  def restart(): Unit = runtime.run {
+    generation += 1
+    abandonRunning()
+  }
+
+  /** Ask every task of the generation that just ended to cancel; their results will find a newer generation or a closed
+    * scope and be suppressed.
+    */
+  private def abandonRunning(): Unit = {
+    running.forEach(_.requestCancel())
+    running.length = 0
+  }
 
   /** End the scope: running tasks are asked to cancel, their results are suppressed, and `launch` is rejected. */
   def close(): Unit = ???
