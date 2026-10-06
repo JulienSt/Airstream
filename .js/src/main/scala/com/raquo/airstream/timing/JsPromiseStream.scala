@@ -35,25 +35,31 @@ class JsPromiseStream[A](
       }
       isPending = true
       lazyPromise.asInstanceOf[js.Dynamic].applyDynamic("then")( // #TODO[Scala] Can't use scala.js `then` method because https://github.com/scala/scala3/issues/20476
+        // The callbacks run from the event loop, outside every turn: the settlement, pending flag included, is delivered
+        // through the owning runtime.
         (
-          (nextValue: A) => {
-            isPending = false
-            // println(s"> init trx from FutureEventStream.init($nextValue)")
-            Transaction(runtime)(fireValue(nextValue, _))
-          }
+          (nextValue: A) => runtime.deliver(onResolved(nextValue))
         ): js.Function1[A, Unit],
         (
-          (rawException: Any) => {
-            isPending = false
-            val nextError = rawException match {
-              case th: Throwable => th
-              case _ => js.JavaScriptException(rawException)
-            }
-            // println(s"> init trx from JsPromiseEventStream.init($nextError)")
-            Transaction(runtime)(fireError(nextError, _))
-          }
+          (rawException: Any) => runtime.deliver(onRejected(rawException))
         ): js.Function1[Any, Unit]
       )
     }
+  }
+
+  /** Apply a resolution inside the runtime: clear the pending flag, then emit in a new transaction. */
+  private def onResolved(nextValue: A): Unit = {
+    isPending = false
+    Transaction(runtime)(fireValue(nextValue, _))
+  }
+
+  /** Apply a rejection inside the runtime: clear the pending flag, then emit the error in a new transaction. */
+  private def onRejected(rawException: Any): Unit = {
+    isPending = false
+    val nextError = rawException match {
+      case th: Throwable => th
+      case _ => js.JavaScriptException(rawException)
+    }
+    Transaction(runtime)(fireError(nextError, _))
   }
 }
