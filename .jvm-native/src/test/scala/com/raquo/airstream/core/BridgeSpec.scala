@@ -21,7 +21,11 @@ class BridgeSpec extends UnitSpec {
   private def withRuntimes[A](body: (Runtime, Runtime, ThreadPool) => A): A = {
     val sourcePool = new ThreadPool("bridge-source", 1)
     val targetPool = new ThreadPool("bridge-target", 1)
-    try body(Runtime.scheduled(sourcePool), Runtime.scheduled(targetPool), targetPool) finally {
+    withPools(sourcePool, targetPool)(body(Runtime.scheduled(sourcePool), Runtime.scheduled(targetPool), targetPool))
+  }
+
+  private def withPools[A](sourcePool: ThreadPool, targetPool: ThreadPool)(body: => A): A = {
+    try body finally {
       sourcePool.close()
       targetPool.close()
     }
@@ -111,6 +115,29 @@ class BridgeSpec extends UnitSpec {
       val outcome = inTurn(a)(scala.util.Try(SignalBridge(source.signal, target)))
       outcome.failed.toOption.map(_.getClass) shouldBe Some(classOf[IllegalArgumentException])
       inTurn(a)(BaseObservable.numAllObservers(source.signal)) shouldBe 0
+    }
+  }
+
+  it("applies each message with the target as the current runtime and leaves no permit or context on the workers") {
+    val sourcePool = new ThreadPool("bridge-source", 1)
+    val targetPool = new ThreadPool("bridge-target", 1)
+    withPools(sourcePool, targetPool) {
+      val a = Runtime.scheduled(sourcePool)
+      val b = Runtime.scheduled(targetPool)
+      val sourceBus = inTurn(a)(new EventBus[Int])
+      val targetBus = inTurn(b)(new EventBus[Int])
+      val contexts = new AtomicReference(Vector.empty[Runtime])
+      inTurn(b)(targetBus.events.foreach(_ => contexts.updateAndGet(_ :+ Runtime.current))(new ManualOwner))
+      val bridge = inTurn(a)(EventBridge(sourceBus.events, targetBus))
+      (1 to 5).foreach(value => a.submit(sourceBus.emit(value)))
+      bridge.close().awaitCompleted(timeout)
+      contexts.get shouldBe Vector.fill(5)(b)
+      val outside = new AtomicReference(Vector.empty[Runtime])
+      val probed = new java.util.concurrent.CountDownLatch(2)
+      Seq(sourcePool, targetPool).foreach(pool => pool.execute(() => { outside.updateAndGet(_ :+ Runtime.current); probed.countDown() }))
+      probed.await(timeout.toMillis, java.util.concurrent.TimeUnit.MILLISECONDS) shouldBe true
+      outside.get shouldBe Vector(Runtime.default, Runtime.default)
+      (a.holderName, b.holderName) shouldBe ((None, None))
     }
   }
 }
