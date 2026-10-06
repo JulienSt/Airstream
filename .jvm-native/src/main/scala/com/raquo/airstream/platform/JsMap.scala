@@ -21,10 +21,13 @@ final class JsMap[K, V] {
 
   /** Look up the value stored under `key`.
     *
+    * Through `getOrElse`, which the map answers from its entry directly, rather than `get`, which wraps a present value in a
+    * `Some` per lookup; the engine looks up a transaction's children every time a transaction completes.
+    *
     * @return
     *   the value, or nothing when the key is absent
     */
-  def get(key: K): UndefOr[V] = underlying.get(key).fold(undefined)(UndefOr.apply)
+  def get(key: K): UndefOr[V] = underlying.getOrElse(key, undefined)
 
   /** Store `value` under `key`, replacing whatever was there. */
   def set(key: K, value: V): Unit = underlying.update(key, value)
