@@ -45,72 +45,83 @@ object UndefOr {
       */
     given liftToUndefOr[A]: Conversion[A, UndefOr[A]] = value => value
 
+    /** The combinators are `inline` with `inline` function arguments, so a call site's lambda is beta-reduced into it and no
+      * function object exists at run time. The hot paths call them with lambdas that capture the engine, the transaction or
+      * the signal; passed to an ordinary method, each would be an object per call that only the JIT's escape analysis
+      * removes, and only while the call site stays monomorphic (`UndefOrAllocationSpec`).
+      */
     extension [A](self: UndefOr[A]) {
 
-        private inline def isUndefined: Boolean = self.asInstanceOf[AnyRef] eq UndefinedValue
+        /** A type test against the sentinel's singleton type, which compiles to a reference comparison. */
+        private inline def isUndefined: Boolean = self.isInstanceOf[UndefinedValue.type]
+
+        /** The present value. The one narrowing of the union to `A`: erased, it emits no instruction, and it is only reached
+          * after `isUndefined` ruled the sentinel out.
+          */
+        private inline def presentValue: A = self.asInstanceOf[A]
 
         /** True when nothing is there. */
-        def isEmpty: Boolean = isUndefined
+        inline def isEmpty: Boolean = isUndefined
 
         /** True when a value is there. */
-        def isDefined: Boolean = !isUndefined
+        inline def isDefined: Boolean = !isUndefined
 
         /** True when a value is there. The other spelling, because both appear at the call sites. */
-        def nonEmpty: Boolean = !isUndefined
+        inline def nonEmpty: Boolean = !isUndefined
 
         /** True when the value there equals `expected`. False when nothing is there. */
-        def contains[B >: A](expected: B): Boolean = !isUndefined && self.asInstanceOf[A] == expected
+        inline def contains[B >: A](expected: B): Boolean = !isUndefined && presentValue == expected
 
         /** True when `predicate` holds for the value, and vacuously true when nothing is there — matching Option. */
-        def forall(predicate: A => Boolean): Boolean = isUndefined || predicate(self.asInstanceOf[A])
+        inline def forall(inline predicate: A => Boolean): Boolean = isUndefined || predicate(presentValue)
 
         /** True when a present value satisfies `predicate`; false when nothing is there. */
-        def exists(predicate: A => Boolean): Boolean = !isUndefined && predicate(self.asInstanceOf[A])
+        inline def exists(inline predicate: A => Boolean): Boolean = !isUndefined && predicate(presentValue)
 
         /** Read the value, falling back to `default` when nothing is there.
           *
-          * `default` is by-name so it is not evaluated when a value is present, which matters at the call site in
-          * Transaction where the fallback builds a new priority queue.
+          * `default` is evaluated only when nothing is there, which matters at the call site in Transaction where the
+          * fallback builds a new priority queue.
           *
           * @return
           *   the value, or the fallback
           */
-        def getOrElse[B >: A](default: => B): B =
+        inline def getOrElse[B >: A](inline default: B): B =
             if(isUndefined) { default }
-            else { self.asInstanceOf[A] }
+            else { presentValue }
 
         /** Apply `transform` to a value that is there, leaving an absent one absent.
           *
           * @return
           *   the transformed value, or nothing
           */
-        def map[B](transform: A => B): UndefOr[B] =
+        inline def map[B](inline transform: A => B): UndefOr[B] =
             if(isUndefined) { UndefinedValue }
-            else { transform(self.asInstanceOf[A]) }
+            else { transform(presentValue) }
 
         /** Keep a present value only when `predicate` accepts it. */
-        def filter(predicate: A => Boolean): UndefOr[A] =
-            if(!isUndefined && predicate(self.asInstanceOf[A])) { self }
+        inline def filter(inline predicate: A => Boolean): UndefOr[A] =
+            if(!isUndefined && predicate(presentValue)) { self }
             else { UndefinedValue }
 
         /** Run `body` for a value that is there, and do nothing at all otherwise. */
-        def foreach(body: A => Unit): Unit = if(!isUndefined) { body(self.asInstanceOf[A]) }
+        inline def foreach(inline body: A => Unit): Unit = if(!isUndefined) { body(presentValue) }
 
         /** Collapse to a single value: `transform` when something is there, `ifEmpty` when nothing is.
           *
           * @return
           *   the folded result
           */
-        def fold[B](ifEmpty: => B)(transform: A => B): B =
+        inline def fold[B](inline ifEmpty: B)(inline transform: A => B): B =
             if(isUndefined) { ifEmpty }
-            else { transform(self.asInstanceOf[A]) }
+            else { transform(presentValue) }
 
         /** Read the value, assuming one is there.
           *
           * @return
           *   the value
           */
-        def get: A = self.asInstanceOf[A]
+        inline def get: A = presentValue
 
         /** Convert to the standard optional type, allocating in the process.
           *
@@ -122,6 +133,6 @@ object UndefOr {
           */
         def toOption: Option[A] =
             if(isUndefined) { None }
-            else { Some(self.asInstanceOf[A]) }
+            else { Some(presentValue) }
     }
 }
