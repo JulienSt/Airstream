@@ -20,14 +20,18 @@ package com.raquo.airstream.platform
   */
 private object UndefinedValue
 
-opaque type UndefOr[+A] = A | UndefinedValue.type
+/** `A` is the lower bound, so a plain value is an `UndefOr[A]` by subtyping, exactly as `A <: js.UndefOr[A]` on Scala.js:
+  * assigning a value to a slot needs no conversion and allocates nothing, and outside this file the representation stays
+  * hidden, because only the bound is visible there, not the union.
+  */
+opaque type UndefOr[+A] >: A = A | UndefinedValue.type
 
 /** The absent value, reachable without naming the companion so shared code reads identically on both platforms — on
   * Scala.js this same name resolves to JavaScript's `undefined`.
   */
 val undefined: UndefOr[Nothing] = UndefinedValue
 
-/** The empty value, and the lift that lets a plain value be assigned to a slot of this type. */
+/** The empty value, the explicit lift, and the combinators. */
 object UndefOr {
 
     /** The absent value. */
@@ -39,11 +43,6 @@ object UndefOr {
       *   the same reference, now typed as possibly-absent
       */
     def apply[A](value: A): UndefOr[A] = value
-
-    /** Assigning a plain value to a slot of this type is how Airstream fills the transaction's pending-observable slot, so
-      * the conversion has to be available implicitly for the shared code to read the way it always did.
-      */
-    given liftToUndefOr[A]: Conversion[A, UndefOr[A]] = value => value
 
     /** The combinators are `inline` with `inline` function arguments, so a call site's lambda is beta-reduced into it and no
       * function object exists at run time. The hot paths call them with lambdas that capture the engine, the transaction or

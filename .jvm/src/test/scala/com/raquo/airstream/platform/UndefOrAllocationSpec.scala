@@ -42,4 +42,8 @@ class UndefOrAllocationSpec extends UnitSpec {
     allocatesNothing("forall") { () => lastFlag = present.forall(box => box.n < captured.n) }
     allocatesNothing("contains") { () => lastFlag = present.contains(captured) }
   }
+
+  it("assigning a plain value to a slot allocates nothing") {
+    allocatesNothing("assignment") { () => lastBox = captured }
+  }
 }
