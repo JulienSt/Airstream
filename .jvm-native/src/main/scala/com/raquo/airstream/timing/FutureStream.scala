@@ -3,7 +3,7 @@ package com.raquo.airstream.timing
 import com.raquo.airstream.core.{Transaction, WritableStream}
 
 import scala.concurrent.{ExecutionContext, Future}
-import scala.util.{Failure, Success}
+import scala.util.{Failure, Success, Try}
 
 /** Emits the value a future completes with, even if it had already completed by the time anyone subscribed.
   *
@@ -43,15 +43,16 @@ class FutureStream[A](
       isPending = true
       // The callback runs wherever the execution context runs it; everything it does to this stream, the pending flag
       // included, is delivered through the owning runtime.
-      lazyFuture.onComplete { completed =>
-        runtime.deliver {
-          isPending = false
-          completed match {
-            case Success(nextValue) => Transaction(runtime)(fireValue(nextValue, _))
-            case Failure(nextError) => Transaction(runtime)(fireError(nextError, _))
-          }
-        }
-      }
+      lazyFuture.onComplete(completed => runtime.deliver(onFutureCompleted(completed)))
+    }
+  }
+
+  /** Apply a completion inside the runtime: clear the pending flag, then emit in a new transaction. */
+  private def onFutureCompleted(completed: Try[A]): Unit = {
+    isPending = false
+    completed match {
+      case Success(nextValue) => Transaction(runtime)(fireValue(nextValue, _))
+      case Failure(nextError) => Transaction(runtime)(fireError(nextError, _))
     }
   }
 }

@@ -37,14 +37,15 @@ class FutureSignal[A](
   override protected def onWillStart(): Unit = {
     if (!futureSubscribed) {
       futureSubscribed = true
-      lazyFuture.onComplete(onFutureCompleted)
+      lazyFuture.onComplete(completed => runtime.deliver(onFutureCompleted(completed)))
     }
   }
 
+  /** Apply a completion inside the runtime, in a new transaction. */
   private def onFutureCompleted(completed: Try[A]): Unit = {
     // #Note Normally onWillStart must not create transactions or emit values, but it is fine here: the completion is
     //  delivered through the runtime, inline only when the callback already runs inside its turn, and a transaction
     //  created during a shared start waits for the start to finish.
-    runtime.deliver(Transaction(runtime)(fireTry(completed.map(Some(_)), _)))
+    Transaction(runtime)(fireTry(completed.map(Some(_)), _))
   }
 }
