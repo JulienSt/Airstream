@@ -81,7 +81,7 @@ object SignalBridge {
 /** The two endpoints of one bridge. Each belongs to one runtime and is touched only in that runtime's turns; what crosses
   * between them is a sequence number with an immutable value, handed over through the target runtime's `submit`.
   */
-private[core] final class BridgeLink[A](val source: SourceEndpoint[A], val target: TargetEndpoint[A])
+final private[core] class BridgeLink[A](val source: SourceEndpoint[A], val target: TargetEndpoint[A])
 
 private[core] object BridgeLink {
 
@@ -105,7 +105,7 @@ private[core] object BridgeLink {
 /** The source side of a bridge: an observer of the source, the next sequence number, and the decision to stop sending.
   * Its fields belong to the source runtime; `detached` is also read by a full close called from any thread.
   */
-private[core] final class SourceEndpoint[A](sourceRuntime: Runtime, target: TargetEndpoint[A]) {
+final private[core] class SourceEndpoint[A](sourceRuntime: Runtime, target: TargetEndpoint[A]) {
 
   private val owner: ManualOwner = new ManualOwner
 
@@ -174,7 +174,7 @@ private[core] final class SourceEndpoint[A](sourceRuntime: Runtime, target: Targ
 /** The target side of a bridge: the next sequence number it expects, the messages that arrived early, and whether it is
   * closed. Its fields belong to the target runtime; every method that touches them runs in a target turn it submitted.
   */
-private[core] sealed abstract class TargetEndpoint[A](val runtime: Runtime) {
+sealed abstract private[core] class TargetEndpoint[A](val runtime: Runtime) {
 
   private var expected: Long = 0L
 
@@ -252,13 +252,13 @@ private[core] sealed abstract class TargetEndpoint[A](val runtime: Runtime) {
 }
 
 /** A target endpoint that emits on an event bus. */
-private[core] final class BusEndpoint[A](bus: EventBus[A]) extends TargetEndpoint[A](bus.events.runtime) {
+final private[core] class BusEndpoint[A](bus: EventBus[A]) extends TargetEndpoint[A](bus.events.runtime) {
 
   override protected def write(value: Try[A]): Unit = bus.emitTry(value)
 }
 
 /** A target endpoint that sets a Var. */
-private[core] final class VarEndpoint[A](variable: Var[A]) extends TargetEndpoint[A](variable.runtime) {
+final private[core] class VarEndpoint[A](variable: Var[A]) extends TargetEndpoint[A](variable.runtime) {
 
   override protected def write(value: Try[A]): Unit = variable.setTry(value)
 }

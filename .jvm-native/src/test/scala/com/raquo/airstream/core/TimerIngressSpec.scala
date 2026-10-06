@@ -17,7 +17,8 @@ class TimerIngressSpec extends UnitSpec {
 
   private def withScheduled[A](body: Runtime => A): A = {
     val pool = new ThreadPool("timer-turns", 1)
-    try body(Runtime.scheduled(pool)) finally pool.close()
+    try body(Runtime.scheduled(pool))
+    finally pool.close()
   }
 
   /** Read `read` inside a turn of `runtime`, from outside every runtime. */

@@ -25,7 +25,8 @@ class BridgeSpec extends UnitSpec {
   }
 
   private def withPools[A](sourcePool: ThreadPool, targetPool: ThreadPool)(body: => A): A = {
-    try body finally {
+    try body
+    finally {
       sourcePool.close()
       targetPool.close()
     }

@@ -43,7 +43,7 @@ object FlowPublisherStream {
   * closed, with a detour through terminated when the publisher ends the subscription first; each move is one atomic step, so `onSubscribe` on a publisher thread and `close` in the stream's runtime cannot
   * both believe they own the subscription.
   */
-private[javaflow] final class PublisherEndpoint[A](
+final private[javaflow] class PublisherEndpoint[A](
   runtime: Runtime,
   fireEvent: FireValue[A],
   fireError: FireError

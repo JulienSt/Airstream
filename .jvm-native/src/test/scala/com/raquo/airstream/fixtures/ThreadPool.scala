@@ -2,7 +2,6 @@ package com.raquo.airstream.fixtures
 
 import java.util.concurrent.{LinkedBlockingQueue, TimeUnit}
 import java.util.concurrent.atomic.AtomicBoolean
-
 import scala.concurrent.ExecutionContext
 import scala.util.control.NonFatal
 

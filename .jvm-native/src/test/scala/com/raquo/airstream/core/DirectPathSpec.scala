@@ -17,7 +17,7 @@ import scala.concurrent.ExecutionContext
   */
 class DirectPathSpec extends UnitSpec {
 
-  private final class SpyingContext extends ExecutionContext {
+  final private class SpyingContext extends ExecutionContext {
     val submissions = new AtomicInteger(0)
     override def execute(runnable: Runnable): Unit = {
       submissions.incrementAndGet()

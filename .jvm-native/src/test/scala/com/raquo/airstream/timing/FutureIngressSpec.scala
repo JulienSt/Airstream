@@ -23,7 +23,8 @@ class FutureIngressSpec extends UnitSpec {
   private def withPools[A](body: (ThreadPool, ThreadPool) => A): A = {
     val turns = new ThreadPool("turns", 1)
     val callbacks = new ThreadPool("callbacks", 1)
-    try body(turns, callbacks) finally {
+    try body(turns, callbacks)
+    finally {
       turns.close()
       callbacks.close()
     }

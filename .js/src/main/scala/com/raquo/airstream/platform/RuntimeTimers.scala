@@ -1,7 +1,7 @@
 package com.raquo.airstream.platform
 
-import com.raquo.airstream.core.Runtime
 import com.raquo.airstream.core.AirstreamError.CrossRuntimeEdge
+import com.raquo.airstream.core.Runtime
 
 import scala.collection.mutable
 import scala.scalajs.js

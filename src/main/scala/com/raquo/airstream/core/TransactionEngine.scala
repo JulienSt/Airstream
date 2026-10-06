@@ -13,7 +13,7 @@ import scala.annotation.tailrec
   * The scheduling rules are unchanged: a root transaction runs at once, a transaction created while another is running
   * becomes its child and runs after it, children run depth-first in creation order.
   */
-private[airstream] final class TransactionEngine(runtime: Runtime) {
+final private[airstream] class TransactionEngine(runtime: Runtime) {
 
   /** First transaction is the top of the stack, currently running.
     * That transaction's parent transaction is the second item, and so on.

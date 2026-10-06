@@ -14,14 +14,14 @@ import scala.collection.mutable
 class RuntimeIsolationSpec extends UnitSpec {
 
   /** A gate one thread opens and another waits at; a stalled wait fails the test instead of hanging it. */
-  private final class Gate(name: String) {
+  final private class Gate(name: String) {
     private val latch = new CountDownLatch(1)
     def open(): Unit = latch.countDown()
     def awaitOpen(): Unit = assert(latch.await(5, TimeUnit.SECONDS), s"gate $name did not open")
   }
 
   /** The events of one run, in global order, each with the thread that recorded it. */
-  private final class Log {
+  final private class Log {
     private val sequence = new AtomicInteger(0)
     private val events = new AtomicReference(Vector.empty[(Int, String, String)])
     def record(label: String): Unit = {
@@ -39,9 +39,14 @@ class RuntimeIsolationSpec extends UnitSpec {
   }
 
   /** Run `body` on a named thread, keeping its failure for the asserting thread. */
-  private final class Producer(name: String)(body: => Unit) {
+  final private class Producer(name: String)(body: => Unit) {
     private val failure = new AtomicReference[Throwable](null)
-    private val thread = new Thread(() => try body catch { case err: Throwable => failure.set(err) }, name)
+    private val thread = new Thread(
+      () =>
+        try body
+        catch { case err: Throwable => failure.set(err) },
+      name
+    )
     thread.setDaemon(true)
     thread.start()
     def join(): Unit = {

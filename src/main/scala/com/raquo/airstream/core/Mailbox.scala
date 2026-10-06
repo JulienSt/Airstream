@@ -31,7 +31,7 @@ import scala.util.control.NonFatal
   * admission closes, every queued receipt settles with `RuntimeFailed`, and a producer that enqueued at the same moment
   * settles its own command after it reads the failed state, so no accepted command is stranded.
   */
-private[airstream] final class Mailbox(
+final private[airstream] class Mailbox(
   runtime: Runtime,
   executor: ExecutionContext,
   capacity: Int,
@@ -231,8 +231,10 @@ private[airstream] final class Mailbox(
   /** Move the runtime to `Failed` because of `err` and settle every queued receipt; idempotent. */
   private[airstream] def fail(err: Throwable): Unit = {
     cause.compareAndSet(null, err)
-    if (lifecycle.compareAndSet(RuntimeState.Open, RuntimeState.Failed) ||
-        lifecycle.compareAndSet(RuntimeState.Closing, RuntimeState.Failed)) {
+    if (
+      lifecycle.compareAndSet(RuntimeState.Open, RuntimeState.Failed) ||
+      lifecycle.compareAndSet(RuntimeState.Closing, RuntimeState.Failed)
+    ) {
       runtime.reportFailure(cause.get)
     }
     val requested = closing.get

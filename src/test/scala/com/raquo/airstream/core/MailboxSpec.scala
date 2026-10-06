@@ -17,7 +17,7 @@ import scala.util.{Failure, Success}
 class MailboxSpec extends UnitSpec {
 
   /** An executor that rejects the given `execute` calls, counted from one, and queues the others for the test to run. */
-  private final class RejectingExecutor(rejects: Set[Int]) extends ExecutionContext {
+  final private class RejectingExecutor(rejects: Set[Int]) extends ExecutionContext {
     val delegate = new ManualExecutor
     var calls = 0
     override def execute(task: Runnable): Unit = {

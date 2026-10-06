@@ -3,6 +3,7 @@ package com.raquo.airstream.eventbus
 import com.raquo.airstream.core.{EventStream, InternalObserver, Observer, Runtime, Transaction}
 import com.raquo.airstream.ownership.{Owner, Subscription}
 import com.raquo.airstream.util.hasDuplicateKeys
+
 import scala.util.Try
 
 class WriteBus[A](

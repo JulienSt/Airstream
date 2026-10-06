@@ -26,7 +26,8 @@ class ScheduledRuntimeThreadsSpec extends UnitSpec {
 
   private def withPool[A](name: String, threads: Int)(body: ThreadPool => A): A = {
     val pool = new ThreadPool(name, threads)
-    try body(pool) finally pool.close()
+    try body(pool)
+    finally pool.close()
   }
 
   it("lets at most one drainer into a runtime when two producers race first submissions into it on a two-thread pool") {
@@ -97,7 +98,8 @@ class ScheduledRuntimeThreadsSpec extends UnitSpec {
       )
       faults.foreach { fault =>
         val receipt = a.submit(fault())
-        try receipt.awaitCompleted(timeout) catch { case _: IllegalStateException => () }
+        try receipt.awaitCompleted(timeout)
+        catch { case _: IllegalStateException => () }
         receipt.completed.isCompleted shouldBe true
         a.holderName shouldBe None
         val seenContext = new AtomicReference[Runtime](null)
@@ -123,7 +125,9 @@ class ScheduledRuntimeThreadsSpec extends UnitSpec {
         def crossCall(name: String, other: Runtime): Unit = {
           bothInside.countDown()
           awaitLatch(bothInside)
-          val outcome = try { other.run(()); null } catch { case err: Throwable => err }
+          val outcome =
+            try { other.run(()); null }
+            catch { case err: Throwable => err }
           results.add((name, outcome))
           ()
         }
@@ -220,7 +224,8 @@ class ScheduledRuntimeThreadsSpec extends UnitSpec {
       val direct = new CountDownLatch(1)
       val directOutcome = new AtomicReference[Either[Throwable, Int]](null)
       dispatcher.execute(() => {
-        directOutcome.set(try Right(runtime.run { v.get.set(5); v.get.now() }) catch { case err: Throwable => Left(err) })
+        directOutcome.set(try Right(runtime.run { v.get.set(5); v.get.now() })
+        catch { case err: Throwable => Left(err) })
         direct.countDown()
       })
       awaitLatch(direct) shouldBe true

@@ -4,7 +4,6 @@ import com.raquo.airstream.UnitSpec
 import com.raquo.airstream.core.AirstreamError.CrossRuntimeAccess
 import com.raquo.airstream.ownership.ManualOwner
 import com.raquo.airstream.state.Var
-
 import com.raquo.airstream.util.FeatureFlags
 
 import scala.annotation.nowarn

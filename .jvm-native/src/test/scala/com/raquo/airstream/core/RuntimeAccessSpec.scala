@@ -16,7 +16,12 @@ class RuntimeAccessSpec extends UnitSpec {
 
   private def onThread[A](name: String)(body: => A): A = {
     val result = new AtomicReference[Either[Throwable, A]]()
-    val thread = new Thread(() => result.set(try Right(body) catch { case err: Throwable => Left(err) }), name)
+    val thread = new Thread(
+      () =>
+        result.set(try Right(body)
+        catch { case err: Throwable => Left(err) }),
+      name
+    )
     thread.start()
     thread.join(5000)
     result.get() match {
