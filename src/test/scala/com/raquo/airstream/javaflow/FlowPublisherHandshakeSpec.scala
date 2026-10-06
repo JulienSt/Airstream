@@ -39,4 +39,19 @@ class FlowPublisherHandshakeSpec extends UnitSpec {
     late.requested shouldBe 0L
     seen.toList shouldBe Nil
   }
+
+  it("keeps a stopped lifetime's late events out of the restarted stream: only the current subscription delivers") {
+    val owner = new TestableOwner
+    val publisher = new HeldPublisher
+    val stream = EventStream.fromPublisher(publisher)
+    val seen = mutable.Buffer[Int]()
+    val first = stream.foreach(seen += _)(owner)
+    publisher.subscribers.head.onSubscribe(new Handle)
+    first.kill()
+    stream.foreach(seen += _)(owner)
+    publisher.subscribers(1).onSubscribe(new Handle)
+    publisher.subscribers.head.onNext(1)
+    publisher.subscribers(1).onNext(2)
+    seen.toList shouldBe List(2)
+  }
 }

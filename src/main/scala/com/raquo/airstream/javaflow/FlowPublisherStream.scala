@@ -1,6 +1,6 @@
 package com.raquo.airstream.javaflow
 
-import com.raquo.airstream.core.EventStream
+import com.raquo.airstream.core.{EventStream, Runtime}
 import com.raquo.airstream.custom.CustomSource.{FireError, FireValue}
 import com.raquo.airstream.platform.AtomicCell
 
@@ -12,7 +12,8 @@ import java.util.concurrent.Flow
   * when the stream starts or stops. Every start therefore gets an endpoint of its own, the one owner of
   * the subscription that start receives, and the endpoint decides the handshake by atomic steps: a subscription that
   * arrives after the stream stopped is cancelled at once and never asked for anything, and a subscription is cancelled
-  * at most once.
+  * at most once. A signal from a stopped lifetime is dropped inside the runtime, after any restart that preceded
+  * it there, so it never reaches the next lifetime's observers.
   */
 object FlowPublisherStream {
 
@@ -23,7 +24,8 @@ object FlowPublisherStream {
     EventStream.fromCustomSource[A](
       shouldStart = startIndex => if (emitOnce) startIndex == 1 else true,
       start = (fireEvent, fireError, _, _) => {
-        val started = new PublisherEndpoint[A](fireEvent, fireError)
+        // The start callback runs inside the stream's turn, so the current runtime is the stream's.
+        val started = new PublisherEndpoint[A](Runtime.current, fireEvent, fireError)
         endpoint = started
         publisher.subscribe(started)
       },
@@ -41,7 +43,11 @@ object FlowPublisherStream {
   * closed; each move is one atomic step, so `onSubscribe` on a publisher thread and `close` in the stream's runtime cannot
   * both believe they own the subscription.
   */
-private[javaflow] final class PublisherEndpoint[A](fireEvent: FireValue[A], fireError: FireError) extends Flow.Subscriber[A] {
+private[javaflow] final class PublisherEndpoint[A](
+  runtime: Runtime,
+  fireEvent: FireValue[A],
+  fireError: FireError
+) extends Flow.Subscriber[A] {
 
   private val state: AtomicCell[AnyRef] = new AtomicCell[AnyRef](PublisherEndpoint.Waiting)
 
@@ -55,9 +61,26 @@ private[javaflow] final class PublisherEndpoint[A](fireEvent: FireValue[A], fire
     }
   }
 
-  override def onNext(value: A): Unit = fireEvent(value)
+  // A signal is judged inside the runtime: whether this lifetime is still the current one is decided in the same order as
+  // the stop that ends it, never on the publisher's thread.
+  override def onNext(value: A): Unit = runtime.deliver(forwardValue(value))
 
-  override def onError(err: Throwable): Unit = fireError(err)
+  override def onError(err: Throwable): Unit = runtime.deliver(forwardError(err))
+
+  private def forwardValue(value: A): Unit = {
+    if (isOpen) {
+      fireEvent(value)
+    }
+  }
+
+  private def forwardError(err: Throwable): Unit = {
+    if (isOpen) {
+      fireError(err)
+    }
+  }
+
+  /** True until this lifetime is closed. */
+  private def isOpen: Boolean = state.get ne PublisherEndpoint.Closed
 
   override def onComplete(): Unit = ()
 
