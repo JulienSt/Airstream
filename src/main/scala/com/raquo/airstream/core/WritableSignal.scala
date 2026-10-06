@@ -62,21 +62,25 @@ trait WritableSignal[A] extends Signal[A] with WritableObservable[A] {
     // === CAUTION ===
     // The following logic must match EventStream's fireValue / fireError! It is separated here for performance.
 
-    val isError = nextValue.isFailure
-    var errorReported = false
-
     // @TODO[API] It is rather curious/unintuitive that firing external observers first seems to make more sense. Think about it some more.
 
     isSafeToRemoveObserver = false
 
-    externalObservers.foreach { observer =>
+    // Explicit index loops, for the reason given in WritableStream.fireValue. An error counts as reported once any
+    // observer received it, so the two loop counters say it without a flag the loops would have to capture.
+
+    var external = 0
+    while (external < externalObservers.length) {
+      val observer = externalObservers(external)
+      external += 1
       observer.onTry(nextValue)
-      if (isError && !errorReported) errorReported = true
     }
 
-    internalObservers.foreach { observer =>
+    var internal = 0
+    while (internal < internalObservers.length) {
+      val observer = internalObservers(internal)
+      internal += 1
       InternalObserver.onTry(observer, nextValue, transaction)
-      if (isError && !errorReported) errorReported = true
     }
 
     isSafeToRemoveObserver = true
@@ -91,7 +95,7 @@ trait WritableSignal[A] extends Signal[A] with WritableObservable[A] {
     //
     // We want to report unhandled errors on such signals if they have no observers (including internal observers)
     // because if we don't, the error will not be reported anywhere, and I think we would usually want it to be reported.
-    if (isError && !errorReported && runtime.strictSignalErrorReporting) {
+    if (nextValue.isFailure && external == 0 && internal == 0 && runtime.strictSignalErrorReporting) {
       nextValue.fold(AirstreamError.sendUnhandledError, _ => ())
     }
   }
