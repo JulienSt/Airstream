@@ -716,7 +716,8 @@ class SwitchSignalSpec extends UnitSpec {
     val stateVar = Var(0)
     val inner = bus.events.startWith(0).combineWith(stateVar.signal)
 
-    val flat = Val[Signal[(Int, Int)]](inner).flattenSwitch
+    val outer: Signal[Signal[(Int, Int)]] = Val(inner)
+    val flat = outer.flattenSwitch
 
     flat.foreach(v => effects += Effect("result", v))
 
