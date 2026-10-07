@@ -34,6 +34,71 @@ class MailboxSpec extends UnitSpec {
     refused.completed.value.exists(_.isFailure) shouldBe true
   }
 
+  it("admits a held-back bulk retry only after draining below the shared reservation threshold") {
+    val executor = new ManualExecutor
+    val runtime = Runtime.scheduled(executor, capacity = 4, turnsPerDrain = 1)
+    val ran = mutable.Buffer[String]()
+    runtime.submitKeeping(2)(ran += "pty-a").isAccepted shouldBe true
+    runtime.submitKeeping(2)(ran += "pty-b").isAccepted shouldBe true
+    runtime.submit(ran += "input-a").isAccepted shouldBe true
+    runtime.submit(ran += "input-b").isAccepted shouldBe true
+    val refused = runtime.submitKeeping(2)(ran += "never")
+    refused.isAccepted shouldBe false
+    executor.runNext() shouldBe true
+    runtime.submitKeeping(2)(ran += "never").isAccepted shouldBe false
+    executor.runNext() shouldBe true
+    runtime.submitKeeping(2)(ran += "never").isAccepted shouldBe false
+    executor.runNext() shouldBe true
+    val retry = runtime.submitKeeping(2)(ran += "pty-c")
+    retry.isAccepted shouldBe true
+    (retry.id > refused.id) shouldBe true
+    executor.runAll()
+    ran.toList shouldBe List("pty-a", "pty-b", "input-a", "input-b", "pty-c")
+    retry.completed.value shouldBe Some(Success(()))
+  }
+
+  it("rejects invalid reservations before any command effect and permits zero headroom at capacity one") {
+    val executor = new ManualExecutor
+    val runtime = Runtime.scheduled(executor, capacity = 1, turnsPerDrain = 1)
+    val ran = mutable.Buffer[Int]()
+    Seq(-1, 1, Int.MaxValue).foreach { reserve =>
+      assertThrows[IllegalArgumentException](runtime.submitKeeping(reserve)(ran += reserve))
+    }
+    executor.pending shouldBe 0
+    runtime.submitKeeping(0)(ran += 0).isAccepted shouldBe true
+    runtime.submitKeeping(0)(ran += 1).isAccepted shouldBe false
+    executor.runAll()
+    ran.toList shouldBe List(0)
+  }
+
+  it("closes bulk admission while completing the commands accepted before the close") {
+    val executor = new ManualExecutor
+    val runtime = Runtime.scheduled(executor, capacity = 2, turnsPerDrain = 1)
+    val ran = mutable.Buffer[Int]()
+    val first = runtime.submitKeeping(1)(ran += 1)
+    val closing = runtime.close()
+    runtime.submitKeeping(1)(ran += 2).isAccepted shouldBe false
+    executor.runAll()
+    first.completed.value shouldBe Some(Success(()))
+    closing.completed.value shouldBe Some(Success(()))
+    runtime.state shouldBe RuntimeState.Closed
+    runtime.submitKeeping(1)(ran += 3).isAccepted shouldBe false
+    ran.toList shouldBe List(1)
+  }
+
+  it("runs a direct submission in its owning runtime without imposing a queue reservation") {
+    val runtime = Runtime.confined()
+    val seen = mutable.Buffer[Runtime]()
+    val receipt = runtime.submitKeeping(3)(seen += Runtime.current)
+    receipt.isAccepted shouldBe true
+    receipt.completed.value shouldBe Some(Success(()))
+    seen.toList shouldBe List(runtime)
+    assertThrows[IllegalArgumentException](runtime.submitKeeping(-1)(seen += Runtime.current))
+    runtime.close()
+    runtime.submitKeeping(3)(seen += Runtime.current).isAccepted shouldBe false
+    seen.toList shouldBe List(runtime)
+  }
+
   /** An executor that rejects the given `execute` calls, counted from one, and queues the others for the test to run. */
   final private class RejectingExecutor(rejects: Set[Int]) extends ExecutionContext {
     val delegate = new ManualExecutor
