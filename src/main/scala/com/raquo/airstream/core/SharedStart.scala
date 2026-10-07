@@ -16,7 +16,11 @@ final private[airstream] class SharedStart(runtime: Runtime) {
 
   private val pendingCallbacks: JsArray[Transaction => Unit] = JsArray()
 
+  private var callbackIndex = 0
+
   private val postStartTransactions: JsArray[Transaction] = JsArray()
+
+  private var postStartIndex = 0
 
   /** Whether we're executing synchronously inside a shared-start block.
     * Read by custom sources to decide how to schedule events that are fired onStart.
@@ -67,9 +71,7 @@ final private[airstream] class SharedStart(runtime: Runtime) {
       if (postStartTransactions.length > 0) {
         new Transaction(runtime,
           { _ =>
-            while (postStartTransactions.length > 0) {
-              runtime.transactions.add(postStartTransactions.shift())
-            }
+            drainPostStartTransactions()
           })
       }
     } else {
@@ -79,7 +81,7 @@ final private[airstream] class SharedStart(runtime: Runtime) {
           //  Is it ok to put it into the same list, or should it go into a new list,
           //  to be executed in a separate transaction?
           while (pendingCallbacks.length > 0) {
-            val callback = pendingCallbacks.shift()
+            val callback = nextCallback()
             try {
               callback(trx)
             } catch {
@@ -93,11 +95,36 @@ final private[airstream] class SharedStart(runtime: Runtime) {
           // scheduled, and will be executed after this shared
           // transaction finishes (they are marked as its
           // children), in the same order as they were created.
-          while (postStartTransactions.length > 0) {
-            val _trx = postStartTransactions.shift()
-            runtime.transactions.add(_trx)
-          }
+          drainPostStartTransactions()
         })
+    }
+  }
+
+  /** Release a consumed reference before calling user code. Clearing at the last slot preserves the old empty-queue
+    * observation inside a nested shared, and a throwing callback leaves the cursor at the next unconsumed entry.
+    */
+  private def nextCallback(): Transaction => Unit = {
+    val callback = pendingCallbacks(callbackIndex)
+    pendingCallbacks(callbackIndex) = null
+    callbackIndex += 1
+    if (callbackIndex == pendingCallbacks.length) {
+      pendingCallbacks.length = 0
+      callbackIndex = 0
+    }
+    callback
+  }
+
+  /** Scheduling only queues children of the running transaction. Reuse the array without shifting its remaining tail. */
+  private def drainPostStartTransactions(): Unit = {
+    while (postStartTransactions.length > 0) {
+      val transaction = postStartTransactions(postStartIndex)
+      postStartTransactions(postStartIndex) = null
+      postStartIndex += 1
+      if (postStartIndex == postStartTransactions.length) {
+        postStartTransactions.length = 0
+        postStartIndex = 0
+      }
+      runtime.transactions.add(transaction)
     }
   }
 }
