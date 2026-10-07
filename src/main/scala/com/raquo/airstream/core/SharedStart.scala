@@ -34,22 +34,18 @@ final private[airstream] class SharedStart(runtime: Runtime) {
 
   /** Run `code` as the (outermost) shared-start block unless one is already running or `when` is false. */
   def shared[A](code: => A, when: Boolean = true): A = {
-    if (_isInSharedStart || !when) {
-      // - We are already executing inside the `code` argument passed
-      //   to another onStart.shared block, so adding another try-catch
-      //   block is not necessary: that other block will take care of it.
-      // - Or, the caller explicitly doesn't want a shared block now (!when)
-      code
-    } else {
+    val resolveAfter = !_isInSharedStart && when
+    if (resolveAfter) {
       _isInSharedStart = true
-      val result =
-        try {
-          code
-        } finally {
-          _isInSharedStart = false
-          resolve()
-        }
-      result
+    }
+    // One use of the by-name block lets the JS optimizer inline it without retaining a callable for two branches.
+    try {
+      code
+    } finally {
+      if (resolveAfter) {
+        _isInSharedStart = false
+        resolve()
+      }
     }
   }
 
