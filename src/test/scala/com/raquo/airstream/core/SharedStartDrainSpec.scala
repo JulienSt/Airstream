@@ -7,6 +7,39 @@ import scala.collection.mutable
 /** Characterize shared-start drains before changing their storage traversal. */
 class SharedStartDrainSpec extends UnitSpec {
 
+  it("reuses a runtime across large, small, and empty shared batches without replaying work") {
+    val runtime = Runtime.confined()
+    var created = 0
+    runtime.traceTo(new RuntimeTrace {
+      override def transactionCreated(runtime: Runtime, commandId: Option[Long]): Unit = created += 1
+    })
+    try runtime.run {
+        for (size <- List(64, 1, 0, 3, 0, 128, 1, 0)) {
+          val effects = mutable.Buffer.empty[Int]
+          val before = created
+          Transaction.onStart.shared {
+            for (index <- 0 until size) {
+              Transaction.onStart.add { _ =>
+                effects += index
+                Transaction.onStart.shared(())
+              }
+            }
+          }
+          effects.toList shouldBe (0 until size).toList
+          (created - before) shouldBe (if (size == 0) 0 else size)
+          effects.clear()
+          Transaction.onStart.shared {
+            for (index <- 0 until size) {
+              Transaction(_ => effects += index)
+            }
+          }
+          effects.toList shouldBe (0 until size).toList
+          Transaction.isClearState shouldBe true
+        }
+      }
+    finally runtime.close()
+  }
+
   it("drains callbacks appended by nested shared before the queued post-start transactions") {
     val runtime = Runtime.confined()
     try runtime.run {
