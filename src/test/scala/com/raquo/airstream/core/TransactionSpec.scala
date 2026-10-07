@@ -226,6 +226,25 @@ class TransactionSpec extends UnitSpec with BeforeAndAfter {
     Transaction.isClearState shouldBe true
   }
 
+  it("runs a failed child's queued descendants before its siblings and accepts the next root") {
+    val order = mutable.Buffer[String]()
+    val failure = new Exception("child failed after scheduling descendants")
+    Transaction { _ =>
+      Transaction { _ =>
+        order += "failed-child"
+        Transaction { _ => order += "grandchild" }
+        throw failure
+      }
+      Transaction { _ => order += "sibling" }
+    }
+    Transaction { _ => order += "next-root" }
+
+    order.toList shouldBe List("failed-child", "grandchild", "sibling", "next-root")
+    errorEffects.toList shouldBe List(Effect("unhandled", failure))
+    errorEffects.clear()
+    Transaction.isClearState shouldBe true
+  }
+
   it("Stack safe (no overflow via breadth)") {
     val owner = new TestableOwner
     val bus = new EventBus[Unit]
