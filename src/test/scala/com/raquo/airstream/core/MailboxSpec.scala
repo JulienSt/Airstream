@@ -16,6 +16,24 @@ import scala.util.{Failure, Success}
   */
 class MailboxSpec extends UnitSpec {
 
+  it("reserves one shared input slot across bulk producers without changing FIFO delivery") {
+    val executor = new ManualExecutor
+    val runtime = Runtime.scheduled(executor, capacity = 3, turnsPerDrain = 8)
+    val ran = mutable.Buffer[String]()
+    val first = runtime.submitKeeping(1)(ran += "pty-a")
+    val second = runtime.submitKeeping(1)(ran += "pty-b")
+    val refused = runtime.submitKeeping(1)(ran += "pty-c")
+    first.isAccepted shouldBe true
+    second.isAccepted shouldBe true
+    refused.isAccepted shouldBe false
+    val input = runtime.submit(ran += "input")
+    input.isAccepted shouldBe true
+    executor.runAll()
+    ran.toList shouldBe List("pty-a", "pty-b", "input")
+    Seq(first, second, input).foreach(_.completed.value shouldBe Some(Success(())))
+    refused.completed.value.exists(_.isFailure) shouldBe true
+  }
+
   /** An executor that rejects the given `execute` calls, counted from one, and queues the others for the test to run. */
   final private class RejectingExecutor(rejects: Set[Int]) extends ExecutionContext {
     val delegate = new ManualExecutor

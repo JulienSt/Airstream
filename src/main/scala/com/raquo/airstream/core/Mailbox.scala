@@ -66,10 +66,12 @@ final private[airstream] class Mailbox(
   def state: RuntimeState = lifecycle.get
 
   /** Admit `body` as a command, or reject it. The returned receipt's `accepted` future is settled either way. */
-  def submit(id: Long, body: () => Unit): Receipt = {
+  def submit(id: Long, body: () => Unit, reservedSlots: Int = 0): Receipt = {
+    require(reservedSlots >= 0 && reservedSlots < capacity,
+      s"reservedSlots must be between 0 and ${capacity - 1}, got $reservedSlots")
     val accepted = Promise[Unit]()
     val completed = Promise[Unit]()
-    reserve() match {
+    reserve(reservedSlots) match {
       case None =>
         val command = new Command(id, body, completed)
         enqueue(command)
@@ -91,7 +93,7 @@ final private[airstream] class Mailbox(
     * cutoff of a close is a bit in the same counter, so a reservation and the cutoff are ordered by one compare-and-set: a
     * reservation that succeeds was admitted before the close, and none succeeds after it.
     */
-  @tailrec private def reserve(): Option[SubmissionRejected] = {
+  @tailrec private def reserve(reservedSlots: Int): Option[SubmissionRejected] = {
     val current = lifecycle.get
     val count = reserved.get
     if ((count & Mailbox.AdmissionClosed) != 0L) {
@@ -100,12 +102,12 @@ final private[airstream] class Mailbox(
     } else if (current ne RuntimeState.Open) {
       Some(SubmissionRejected(runtime, s"the runtime is ${current.toString.toLowerCase}"))
     } else {
-      if (count >= capacity) {
-        Some(SubmissionRejected(runtime, s"the mailbox already holds its capacity of $capacity commands"))
+      if (count >= capacity - reservedSlots) {
+        Some(SubmissionRejected(runtime, s"the mailbox holds $count commands with $reservedSlots of its $capacity slots reserved"))
       } else if (reserved.compareAndSet(count, count + 1)) {
         None
       } else {
-        reserve()
+        reserve(reservedSlots)
       }
     }
   }

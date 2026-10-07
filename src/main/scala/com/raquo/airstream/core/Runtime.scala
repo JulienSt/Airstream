@@ -193,10 +193,19 @@ final class Runtime private (
     * submit to itself: the command then runs inline, and the transactions it creates are children of the running one,
     * as every nested write is.
     */
-  def submit(command: => Unit): Receipt = {
+  def submit(command: => Unit): Receipt = submitKeeping(0)(command)
+
+  /** Submit while leaving `reservedSlots` mailbox slots available to producers that use a smaller reservation.
+    * The same atomic capacity counter covers every producer; this changes admission only, never FIFO delivery.
+    * A refused command has no effect and may be retried. Direct runtimes have no queue and run it as an ordinary submit.
+    *
+    * @throws IllegalArgumentException if the reservation is negative or leaves no room in a scheduled mailbox
+    */
+  def submitKeeping(reservedSlots: Int)(command: => Unit): Receipt = {
+    require(reservedSlots >= 0, s"reservedSlots must be nonnegative, got $reservedSlots")
     val id = commandIds.incrementAndGet()
     if (mailbox ne null) {
-      mailbox.submit(id, () => command)
+      mailbox.submit(id, () => command, reservedSlots)
     } else {
       submitDirect(id, () => command)
     }
