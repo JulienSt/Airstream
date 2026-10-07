@@ -206,6 +206,26 @@ class TransactionSpec extends UnitSpec with BeforeAndAfter {
     order shouldBe mutable.Buffer("outer-start", "outer-end", "first-child", "grandchild", "second-child")
     Transaction.isClearState shouldBe true
   }
+  it("visits both siblings on each of three levels in depth-first creation order") {
+    val order = mutable.Buffer[String]()
+    Transaction { _ =>
+      order += "root-start"
+      Transaction { _ =>
+        order += "a"
+        Transaction { _ => order += "aa" }
+        Transaction { _ => order += "ab" }
+      }
+      Transaction { _ =>
+        order += "b"
+        Transaction { _ => order += "ba" }
+        Transaction { _ => order += "bb" }
+      }
+      order += "root-end"
+    }
+    order.toList shouldBe List("root-start", "root-end", "a", "aa", "ab", "b", "ba", "bb")
+    Transaction.isClearState shouldBe true
+  }
+
   it("Stack safe (no overflow via breadth)") {
     val owner = new TestableOwner
     val bus = new EventBus[Unit]
