@@ -2,7 +2,7 @@ package com.raquo.airstream.core
 
 import com.raquo.airstream.platform.JsArray
 
-class ObserverList[Obs](
+class ObserverList[Obs <: AnyRef](
   private val observers: JsArray[Obs]
 ) extends AnyVal {
 
@@ -14,12 +14,24 @@ class ObserverList[Obs](
 
   /** @return whether observer was removed (`false` if it wasn't in the list) */
   def removeObserverNow(observer: Obs): Boolean = {
-    val index = observers.indexOf(observer)
+    val index = indexOfRef(observer)
     val shouldRemove = index != -1
     if (shouldRemove) {
       observers.splice(index, deleteCount = 1)
     }
     shouldRemove
+  }
+
+  /** A subscription owns an instance, not an equality class. Scala.js array lookup already uses this identity. */
+  private def indexOfRef(observer: Obs): Int = {
+    var index = 0
+    while (index < observers.length) {
+      if (observers(index) eq observer) {
+        return index
+      }
+      index += 1
+    }
+    -1
   }
 
   /** @param fn Must not throw */
