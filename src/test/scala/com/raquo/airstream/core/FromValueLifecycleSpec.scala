@@ -8,6 +8,29 @@ import scala.collection.mutable
 /** Characterizes the public factory while its general custom-source configuration is still in place. */
 class FromValueLifecycleSpec extends UnitSpec {
 
+  for { emitOnce <- Seq(false, true); sharedStarts <- Seq(false, true) } {
+    it(s"preserves queued emissions across stop/restart in one shared block with emitOnce=$emitOnce, sharedStarts=$sharedStarts") {
+      val runtime = Runtime.confined()
+      try runtime.run {
+          runtime.trxOnStartFix144 = sharedStarts
+          val source = EventStream.fromValue(42, emitOnce)
+          val first = new ManualOwner
+          val restarted = new ManualOwner
+          val seen = mutable.Buffer.empty[(String, Int)]
+          Transaction.onStart.shared {
+            source.foreach(value => seen += "first" -> value)(first)
+            first.killSubscriptions()
+            source.foreach(value => seen += "restarted" -> value)(restarted)
+            seen.toList shouldBe Nil
+          }
+          seen.toList shouldBe List.fill(if (emitOnce) 1 else 2)("restarted" -> 42)
+          restarted.killSubscriptions()
+          Transaction.isClearState shouldBe true
+        }
+      finally runtime.close()
+    }
+  }
+
   Seq(false, true).foreach { emitOnce =>
     it(s"preserves restart and additional-observer behavior with emitOnce=$emitOnce") {
       val source = EventStream.fromValue(42, emitOnce)
