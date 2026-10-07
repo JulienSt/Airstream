@@ -1,136 +1,65 @@
 package com.raquo.airstream.core
 
-import com.raquo.airstream.platform.{JsArray, JsMap}
-import com.raquo.airstream.platform.UndefOr
+import com.raquo.airstream.platform.{undefined, UndefOr}
 
-import scala.annotation.tailrec
-
-/** The transaction scheduling state of one runtime: the stack of transactions being executed and the children each of
-  * them has queued. It used to live in `Transaction.pendingTransactions`, a process-wide singleton, which is how an
-  * unrelated graph on another thread could be filed as a child of a transaction it never knew about.
-  * Owned by a runtime, it is only ever touched by the thread holding that runtime's permit.
+/** Scheduling state owned by one runtime. Only its permit holder may enter or drain this engine.
   *
-  * The scheduling rules are unchanged: a root transaction runs at once, a transaction created while another is running
-  * becomes its child and runs after it, children run depth-first in creation order.
+  * New transactions created during a turn are deferred children. At the end of that transaction, pushing its children
+  * onto the pending stack in reverse creation order makes the oldest child next, ahead of every older sibling. Thus
+  * depth-first order needs neither an ancestor stack nor a parent-to-children map. Buffers retain capacity between turns,
+  * but clear every consumed reference; transaction objects themselves are never reused.
   */
 final private[airstream] class TransactionEngine(runtime: Runtime) {
 
-  /** First transaction is the top of the stack, currently running.
-    * That transaction's parent transaction is the second item, and so on.
-    */
-  private val stack: JsArray[Transaction] = JsArray()
+  private var current: UndefOr[Transaction] = undefined
 
-  private val children: JsMap[Transaction, JsArray[Transaction]] = new JsMap()
+  private val children = new TransactionStack
+
+  private val pending = new TransactionStack
 
   def add(newTransaction: Transaction): Unit = {
-    // 1. Regarding calling `run`:
-    //    If a transaction is currently running, the new transaction will be triggered
-    //    from the .done() call after the current transaction finishes.
-    //    Otherwise, if there are no pending transactions other than this new transaction,
-    //    we need to run this transaction right now because no one will do it for us.
-    // 2. Regarding the queue:
-    //    If a transaction is currently running, add newTransaction to its children.
-    //    They will run after the current transaction finishes.
-    // Written as explicit branches over the stack's length rather than a fold over its optional top: this is the root
-    // write's path, and a fold's two closures capture this engine and the transaction.
-    if (stack.length == 0) {
-      // #TODO[Performance] This pushToStack is taking up 15% of cpu time on a trivial eventbus --> Observer.empty benchmark.
-      //  Should we try to optimize it? Since we run the trx immediately, perhaps we could simply set a flag instead of pushing it to the array?
-      //  Consider this later when I have moer comprehensive benchmarks.
-      pushToStack(newTransaction)
-      run(newTransaction)
-      done(newTransaction)
+    if (current.isDefined) {
+      children.push(newTransaction)
     } else {
-      enqueueChild(parent = stack(0), newChild = newTransaction)
-    }
-  }
-
-  /** #Warning: you MUST call done(trx) after calling `run(trx)`! */
-  @tailrec def done(transaction: Transaction): Unit = {
-    if (stack.length == 0 || (stack(0) ne transaction)) {
-      // @TODO[Integrity] Should we really throw here?
-      throw new Exception("Transaction queue error: Completed transaction is not the first in stack. This is a bug in Airstream.")
-    }
-
-    putNextTransactionOnStack(doneTransaction = transaction)
-
-    transaction.code = TransactionEngine.throwDeadTrxError // stop holding up `trx` contents in memory
-
-    if (stack.length == 0) {
-      if (children.size > 0) {
-        var numChildren = 0
-        children.forEach((transactions, _) => numChildren += transactions.length)
-        throw new Exception(s"Transaction queue error: Stack cleared, but a total of ${numChildren} children for ${children.size} transactions remain. This is a bug in Airstream.")
+      current = newTransaction
+      try {
+        drain()
+      } finally {
+        current = undefined
+        children.clear()
+        pending.clear()
       }
-    } else {
-      val nextTransaction = stack(0)
-      run(nextTransaction)
-      done(nextTransaction)
     }
   }
 
-  /* If this transaction has children remaining, set first child to be run next.
-   * Otherwise, remove transaction from the stack and do the same for next transaction on stack.
-   */
-  @tailrec private def putNextTransactionOnStack(doneTransaction: Transaction): Unit = {
-    // We use depth-first because of https://github.com/raquo/Airstream/issues/39
-    val maybeChildren = children.get(doneTransaction)
-    if (maybeChildren.isEmpty || maybeChildren.get.length == 0) {
-      // No children, this transaction is truly done now, remove it from the stack.
-      popStack()
-      // If any transactions left in the stack, recurse
-      if (stack.length > 0) {
-        putNextTransactionOnStack(doneTransaction = stack(0))
+  private def drain(): Unit = {
+    while (current.isDefined) {
+      val transaction = current.get
+      try {
+        run(transaction)
+      } finally {
+        transaction.code = TransactionEngine.throwDeadTrxError
       }
-    } else {
-      // Found a child transaction, so put it on the stack, so that it wil run next.
-      // Once that child is all done, it will be popped from the stack, and we will
-      pushToStack(dequeueChild(parent = doneTransaction, parentChildren = maybeChildren.get))
+      while (children.nonEmpty) {
+        pending.push(children.pop())
+      }
+      if (pending.nonEmpty) {
+        current = pending.pop()
+      } else {
+        current = undefined
+      }
     }
   }
 
-  /** Returns the top of the stack, i.e. the currently executing transaction, if any. */
-  def peekStack(): UndefOr[Transaction] = {
-    // in Javascript, if array is empty, this does not fail, but instead returns `undefined`.
-    stack(0)
-  }
+  /** The currently executing transaction, if any; a completed parent is not an executing transaction. */
+  def peekStack(): UndefOr[Transaction] = current
 
-  /** The depth of a transaction created now: one below the running transaction, or 1 for a root. */
-  def depthOfNewTransaction: Int = {
-    if (stack.length == 0) 1 else stack(0).depthOfChild
-  }
+  /** Depth is stored on each transaction when created, so pending siblings need no live ancestor objects. */
+  def depthOfNewTransaction: Int = if (current.isEmpty) 1 else current.get.depthOfChild
 
-  def isClearState: Boolean = stack.length == 0 && children.size == 0
+  def isClearState: Boolean = current.isEmpty && !children.nonEmpty && !pending.nonEmpty
 
-  private def pushToStack(transaction: Transaction): Unit = {
-    stack.unshift(transaction)
-  }
-
-  private def popStack(): Unit = {
-    stack.shift()
-  }
-
-  private def enqueueChild(parent: Transaction, newChild: Transaction): Unit = {
-    val maybeChildren = children.get(parent)
-    if (maybeChildren.isEmpty) {
-      val newChildren = JsArray[Transaction]()
-      newChildren.push(newChild)
-      children.set(parent, newChildren)
-    } else {
-      maybeChildren.get.push(newChild)
-    }
-  }
-
-  /** Take the first child of `parent`'s non-empty queue `parentChildren`, forgetting the queue with its last child. */
-  private def dequeueChild(parent: Transaction, parentChildren: JsArray[Transaction]): Transaction = {
-    val nextChild = parentChildren.shift()
-    if (parentChildren.length == 0) {
-      children.delete(parent)
-    }
-    nextChild
-  }
-
-  /** #Warning: you MUST call `done(trx)` after calling `run(trx)`! */
+  /** Errors are reported inside the same turn; queued descendants retain their depth-first position. */
   private def run(transaction: Transaction): Unit = {
     try {
       transaction.code(transaction)

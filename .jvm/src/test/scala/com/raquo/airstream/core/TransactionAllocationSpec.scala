@@ -86,4 +86,20 @@ class TransactionAllocationSpec extends UnitSpec {
       value => source.set(value)
     }
   }
+
+  it("eight nested Var writes reuse engine scheduling storage (720 bytes per root event)") {
+    withinCeiling("nested-fan-out-8", ceiling = 720) { (owner, sink) =>
+      val source = new EventBus[Int]
+      val children = Vector.tabulate(8)(index => Var(index))
+      children.foreach(_.signal.foreach(value => sink(0) += value)(owner))
+      source.events.foreach { value =>
+        var index = 0
+        while (index < children.length) {
+          children(index).set(value + index)
+          index += 1
+        }
+      }(owner)
+      value => source.emit(value)
+    }
+  }
 }

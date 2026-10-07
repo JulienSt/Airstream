@@ -30,7 +30,7 @@ class RootEntryAllocationSpec extends UnitSpec {
     val entries = 200000
     val bytes = allocatedBy(entries)(enter)
     withClue(s"$bytes bytes for $entries entries: ") {
-      (bytes.toDouble / entries < 1.0) shouldBe true
+      bytes shouldBe 0L
     }
   }
 }
