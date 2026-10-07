@@ -33,7 +33,7 @@ class CombineSignalN[A, Out](
   override protected def inputsReady: Boolean = true
 
   override protected def combinedValue: Try[Out] = {
-    CombineObservable.jsArrayCombinator(parents.map(_.tryNow()), combinator)
+    CombineObservable.signalCombinator(parents, combinator)
   }
 
   override protected def currentValueFromParent(): Try[Out] = combinedValue

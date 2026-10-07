@@ -6,6 +6,9 @@ import scala.scalajs.js
 
 object PlatformCollections {
 
+  /** JS arrays grow natively; reserving capacity must not create observable empty slots. */
+  @inline private[airstream] def jsArrayWithCapacity[A](capacity: Int): JsArray[A] = JsArray[A]()
+
   @inline def jsVector[A](values: Seq[A]): JsVector[A] =
     js.Array(values: _*).ew.unsafeAsJsVector
 

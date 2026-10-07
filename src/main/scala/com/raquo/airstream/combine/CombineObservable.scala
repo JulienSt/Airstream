@@ -1,9 +1,9 @@
 package com.raquo.airstream.combine
 
 import com.raquo.airstream.common.InternalParentObserver
-import com.raquo.airstream.core.{SyncObservable, Transaction, WritableObservable}
+import com.raquo.airstream.core.{Signal, SyncObservable, Transaction, WritableObservable}
 import com.raquo.airstream.core.AirstreamError.CombinedError
-import com.raquo.airstream.platform.{DevTools, JsArray}
+import com.raquo.airstream.platform.{DevTools, JsArray, PlatformCollections}
 
 import scala.util.{Failure, Success, Try}
 
@@ -56,6 +56,40 @@ trait CombineObservable[A] extends SyncObservable[A] { this: WritableObservable[
 }
 
 object CombineObservable {
+
+  /** Read each signal once. The success path allocates only the array passed to the user and the result wrapper. */
+  private[airstream] def signalCombinator[A, B](parents: JsArray[Signal[A]], combinator: JsArray[A] => B): Try[B] = {
+    val values = PlatformCollections.jsArrayWithCapacity[A](parents.length)
+    var index = 0
+    while (index < parents.length) {
+      parents(index).tryNow() match {
+        case Success(value) => values.push(value)
+        case Failure(error) => return signalErrors(parents, index, error)
+      }
+      index += 1
+    }
+    Success(combinator(values))
+  }
+
+  /** Preserve one position per parent without re-reading the successful prefix or the first failure. */
+  private def signalErrors[A, B](parents: JsArray[Signal[A]], failedAt: Int, firstError: Throwable): Try[B] = {
+    val errors = Seq.newBuilder[Option[Throwable]]
+    var index = 0
+    while (index < failedAt) {
+      errors += None
+      index += 1
+    }
+    errors += Some(firstError)
+    index += 1
+    while (index < parents.length) {
+      parents(index).tryNow() match {
+        case Failure(error) => errors += Some(error)
+        case _ => errors += None
+      }
+      index += 1
+    }
+    Failure(CombinedError(errors.result()))
+  }
 
   def tupleCombinator[A, B, O](combinator: (A, B) => O)(try1: Try[A], try2: Try[B]): Try[O] = {
     if (try1.isSuccess && try2.isSuccess) {

@@ -151,6 +151,10 @@ final class JsArray[A] private (private val underlying: mutable.ArrayBuffer[A]) 
 /** Ways of getting an array without naming the constructor. */
 object JsArray {
 
+  /** Reserve known result capacity without adding elements or an intermediate collection. */
+  private[platform] def withCapacity[A](capacity: Int): JsArray[A] =
+    new JsArray(new mutable.ArrayBuffer[A](capacity))
+
   /** Build an array holding `values`, in the order given.
     *
     * @return

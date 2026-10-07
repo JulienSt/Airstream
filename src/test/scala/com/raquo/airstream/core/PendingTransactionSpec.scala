@@ -31,6 +31,25 @@ class PendingTransactionSpec extends UnitSpec {
     finally runtime.close()
   }
 
+  it("checks transaction identity even when a custom transaction overrides equals") {
+    val runtime = Runtime.confined()
+    try runtime.run {
+        val completed = new Transaction(_ => ())
+        val node = new Node
+        var rejected = false
+        new Transaction(_ => {
+          try completed.enqueuePendingObservable(node)
+          catch { case _: IllegalStateException => rejected = true }
+        }) {
+          override def equals(other: Any): Boolean = other.isInstanceOf[Transaction]
+          override def hashCode(): Int = 1
+        }
+        rejected shouldBe true
+        node.isPending shouldBe false
+      }
+    finally runtime.close()
+  }
+
   it("clears abandoned flags after syncFire throws, then admits the same nodes in the next transaction") {
     val runtime = Runtime.confined()
     try runtime.run {

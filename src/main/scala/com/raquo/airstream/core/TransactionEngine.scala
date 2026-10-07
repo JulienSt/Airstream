@@ -39,7 +39,7 @@ final private[airstream] class TransactionEngine(runtime: Runtime) {
   }
 
   private def requireCurrent(transaction: Transaction): Unit = {
-    if (!current.contains(transaction)) {
+    if (current.isEmpty || (current.get ne transaction)) {
       throw new IllegalStateException("Pending observables require the currently executing transaction")
     }
   }
@@ -90,14 +90,18 @@ final private[airstream] class TransactionEngine(runtime: Runtime) {
 
   /** Errors are reported inside the same turn; queued descendants retain their depth-first position. */
   private def run(transaction: Transaction): Unit = {
+    // Keep finalization outside the catch frame: on Native 0.5.12 a rethrow from that frame's catch can skip its finally.
+    // An enclosing finally preserves cleanup even when the explicitly unsafe error callback rethrows.
     try {
-      transaction.code(transaction)
-      transaction.resolvePendingObservables()
-    } catch {
-      case err: Throwable =>
-        // #TODO[Integrity] I'm not 100% sure that this is what we want to do here,
-        //  but I think it's better than not handling the error at all.
-        runtime.sendUnhandledError(err)
+      try {
+        transaction.code(transaction)
+        transaction.resolvePendingObservables()
+      } catch {
+        case err: Throwable =>
+          // #TODO[Integrity] I'm not 100% sure that this is what we want to do here,
+          //  but I think it's better than not handling the error at all.
+          runtime.sendUnhandledError(err)
+      }
     } finally {
       if (pendingObservables.isDefined) pendingObservables.get.clear()
     }
