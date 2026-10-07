@@ -18,9 +18,13 @@ final private[airstream] class SharedStart(runtime: Runtime) {
 
   private var callbackIndex = 0
 
+  private var callbackEnd = 0
+
   private val postStartTransactions: JsArray[Transaction] = JsArray()
 
   private var postStartIndex = 0
+
+  private var postStartEnd = 0
 
   /** Whether we're executing synchronously inside a shared-start block.
     * Read by custom sources to decide how to schedule events that are fired onStart.
@@ -29,7 +33,12 @@ final private[airstream] class SharedStart(runtime: Runtime) {
 
   /** Delay `transaction` until the current shared-start block resolves. Only called while a block is executing. */
   def enqueuePostStart(transaction: Transaction): Unit = {
-    postStartTransactions.push(transaction)
+    if (postStartEnd < postStartTransactions.length) {
+      postStartTransactions(postStartEnd) = transaction
+    } else {
+      postStartTransactions.push(transaction)
+    }
+    postStartEnd += 1
   }
 
   /** Run `code` as the (outermost) shared-start block unless one is already running or `when` is false. */
@@ -63,12 +72,17 @@ final private[airstream] class SharedStart(runtime: Runtime) {
     if (!_isInSharedStart) {
       throw new Exception("Transaction.onStart.add was called outside of a Transaction.onStart.shared block. This is likely a bug in Airstream.")
     }
-    pendingCallbacks.push(callback)
+    if (callbackEnd < pendingCallbacks.length) {
+      pendingCallbacks(callbackEnd) = callback
+    } else {
+      pendingCallbacks.push(callback)
+    }
+    callbackEnd += 1
   }
 
   private def resolve(): Unit = {
-    if (pendingCallbacks.length == 0) {
-      if (postStartTransactions.length > 0) {
+    if (callbackEnd == 0) {
+      if (postStartEnd > 0) {
         new Transaction(runtime,
           { _ =>
             drainPostStartTransactions()
@@ -80,7 +94,7 @@ final private[airstream] class SharedStart(runtime: Runtime) {
           // #TODO[Integrity] What if calling callback(trx) calls onStart.add?
           //  Is it ok to put it into the same list, or should it go into a new list,
           //  to be executed in a separate transaction?
-          while (pendingCallbacks.length > 0) {
+          while (callbackEnd > 0) {
             val callback = nextCallback()
             try {
               callback(trx)
@@ -102,13 +116,14 @@ final private[airstream] class SharedStart(runtime: Runtime) {
 
   /** Release a consumed reference before calling user code. Clearing at the last slot preserves the old empty-queue
     * observation inside a nested shared, and a throwing callback leaves the cursor at the next unconsumed entry.
+    * Retain cleared slots separately from the logical end so the next batch can reuse the array's storage on JS too.
     */
   private def nextCallback(): Transaction => Unit = {
     val callback = pendingCallbacks(callbackIndex)
     pendingCallbacks(callbackIndex) = null
     callbackIndex += 1
-    if (callbackIndex == pendingCallbacks.length) {
-      pendingCallbacks.length = 0
+    if (callbackIndex == callbackEnd) {
+      callbackEnd = 0
       callbackIndex = 0
     }
     callback
@@ -116,12 +131,12 @@ final private[airstream] class SharedStart(runtime: Runtime) {
 
   /** Scheduling only queues children of the running transaction. Reuse the array without shifting its remaining tail. */
   private def drainPostStartTransactions(): Unit = {
-    while (postStartTransactions.length > 0) {
+    while (postStartEnd > 0) {
       val transaction = postStartTransactions(postStartIndex)
       postStartTransactions(postStartIndex) = null
       postStartIndex += 1
-      if (postStartIndex == postStartTransactions.length) {
-        postStartTransactions.length = 0
+      if (postStartIndex == postStartEnd) {
+        postStartEnd = 0
         postStartIndex = 0
       }
       runtime.transactions.add(transaction)
