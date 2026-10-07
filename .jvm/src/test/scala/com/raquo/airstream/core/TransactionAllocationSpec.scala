@@ -77,8 +77,8 @@ class TransactionAllocationSpec extends UnitSpec {
     }
   }
 
-  it("a Var write through a diamond allocates no more than the base did (824 bytes)") {
-    withinCeiling("diamond", ceiling = 824) { (owner, sink) =>
+  it("a Var write through a diamond reuses runtime pending storage (400 bytes)") {
+    withinCeiling("diamond", ceiling = 400) { (owner, sink) =>
       val source = Var(0)
       val left = source.signal.map(_ + 1)
       val right = source.signal.map(_ * 2)

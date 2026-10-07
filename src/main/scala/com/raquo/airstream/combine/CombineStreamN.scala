@@ -1,7 +1,7 @@
 package com.raquo.airstream.combine
 
 import com.raquo.airstream.common.{InternalParentObserver, MultiParentStream}
-import com.raquo.airstream.core.{EventStream, Observable, Protected, Runtime}
+import com.raquo.airstream.core.{EventStream, Observable, PendingState, Protected, Runtime}
 import com.raquo.airstream.platform.{undefined, UndefOr}
 import com.raquo.airstream.platform.JsArray
 
@@ -14,7 +14,7 @@ import scala.util.Try
 class CombineStreamN[A, Out](
   parentStreams: JsArray[EventStream[A]],
   combinator: JsArray[A] => Out
-) extends MultiParentStream[A, Out] with CombineObservable[Out] {
+) extends MultiParentStream[A, Out] with CombineObservable[Out] with PendingState {
 
   // @TODO[API] Maybe this should throw if parents.isEmpty
 

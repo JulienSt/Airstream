@@ -1,7 +1,7 @@
 package com.raquo.airstream.combine
 
 import com.raquo.airstream.common.{InternalParentObserver, MultiParentSignal}
-import com.raquo.airstream.core.{Protected, Runtime, Signal}
+import com.raquo.airstream.core.{PendingState, Protected, Runtime, Signal}
 import com.raquo.airstream.platform.JsArray
 
 import scala.util.Try
@@ -13,7 +13,7 @@ import scala.util.Try
 class CombineSignalN[A, Out](
   override protected val parents: JsArray[Signal[A]],
   protected val combinator: JsArray[A] => Out
-) extends MultiParentSignal[A, Out] with CombineObservable[Out] {
+) extends MultiParentSignal[A, Out] with CombineObservable[Out] with PendingState {
 
   // @TODO[API] Maybe this should throw if parents.isEmpty
 

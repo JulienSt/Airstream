@@ -1,7 +1,7 @@
 package com.raquo.airstream.combine
 
 import com.raquo.airstream.common.{InternalParentObserver, MultiParentSignal}
-import com.raquo.airstream.core.{Protected, Runtime, Signal}
+import com.raquo.airstream.core.{PendingState, Protected, Runtime, Signal}
 import com.raquo.airstream.platform.JsArray
 
 import scala.util.Try
@@ -20,7 +20,7 @@ class SampleCombineSignalN[A, Out](
   samplingSignal: Signal[A],
   sampledSignals: JsArray[Signal[A]],
   combinator: JsArray[A] => Out
-) extends MultiParentSignal[A, Out] with CombineObservable[Out] {
+) extends MultiParentSignal[A, Out] with CombineObservable[Out] with PendingState {
 
   override protected val topoRank: Int = Protected.maxTopoRank(samplingSignal, sampledSignals) + 1
 

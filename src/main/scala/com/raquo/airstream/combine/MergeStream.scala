@@ -1,7 +1,7 @@
 package com.raquo.airstream.combine
 
 import com.raquo.airstream.common.{InternalParentObserver, MultiParentStream, ObservationExt}
-import com.raquo.airstream.core.{EventStream, Observable, Protected, Runtime, SyncObservable, Transaction, WritableStream}
+import com.raquo.airstream.core.{EventStream, Observable, PendingState, Protected, Runtime, SyncObservable, Transaction, WritableStream}
 import com.raquo.airstream.platform.{undefined, JsArray, UndefOr}
 import com.raquo.airstream.util.JsPriorityQueue
 
@@ -16,7 +16,7 @@ import com.raquo.airstream.util.JsPriorityQueue
   */
 class MergeStream[A](
   parentStreams: JsArray[EventStream[A]],
-) extends WritableStream[A] with SyncObservable[A] with MultiParentStream[A, A] {
+) extends WritableStream[A] with SyncObservable[A] with MultiParentStream[A, A] with PendingState {
 
   override protected val parents: JsArray[Observable[A]] = {
     // This cast is safe as long as we don't put signals into this array

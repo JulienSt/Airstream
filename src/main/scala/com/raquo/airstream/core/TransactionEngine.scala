@@ -17,6 +17,33 @@ final private[airstream] class TransactionEngine(runtime: Runtime) {
 
   private val pending = new TransactionStack
 
+  private var pendingObservables: UndefOr[PendingObservables] = undefined
+
+  def containsPendingObservable(transaction: Transaction, observable: SyncObservable[?]): Boolean = {
+    requireCurrent(transaction)
+    pendingObservables.isDefined && pendingObservables.get.contains(observable)
+  }
+
+  def enqueuePendingObservable(transaction: Transaction, observable: SyncObservable[?]): Unit = {
+    requireCurrent(transaction)
+    if (pendingObservables.isEmpty) pendingObservables = new PendingObservables
+    pendingObservables.get.enqueue(observable)
+  }
+
+  def resolvePendingObservables(transaction: Transaction): Unit = {
+    requireCurrent(transaction)
+    if (pendingObservables.isDefined) {
+      val queue = pendingObservables.get
+      while (queue.nonEmpty) queue.dequeue().syncFire(transaction)
+    }
+  }
+
+  private def requireCurrent(transaction: Transaction): Unit = {
+    if (!current.contains(transaction)) {
+      throw new IllegalStateException("Pending observables require the currently executing transaction")
+    }
+  }
+
   def add(newTransaction: Transaction): Unit = {
     if (current.isDefined) {
       children.push(newTransaction)
@@ -57,7 +84,9 @@ final private[airstream] class TransactionEngine(runtime: Runtime) {
   /** Depth is stored on each transaction when created, so pending siblings need no live ancestor objects. */
   def depthOfNewTransaction: Int = if (current.isEmpty) 1 else current.get.depthOfChild
 
-  def isClearState: Boolean = current.isEmpty && !children.nonEmpty && !pending.nonEmpty
+  def isClearState: Boolean =
+    current.isEmpty && !children.nonEmpty && !pending.nonEmpty &&
+      (pendingObservables.isEmpty || !pendingObservables.get.nonEmpty)
 
   /** Errors are reported inside the same turn; queued descendants retain their depth-first position. */
   private def run(transaction: Transaction): Unit = {
@@ -69,6 +98,8 @@ final private[airstream] class TransactionEngine(runtime: Runtime) {
         // #TODO[Integrity] I'm not 100% sure that this is what we want to do here,
         //  but I think it's better than not handling the error at all.
         runtime.sendUnhandledError(err)
+    } finally {
+      if (pendingObservables.isDefined) pendingObservables.get.clear()
     }
     // @TODO[API,Integrity]
     //  Errors in `code` are routed to unhandled errors, so `Transaction(code)` only throws

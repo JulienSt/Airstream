@@ -3,8 +3,7 @@ package com.raquo.airstream.core
 import com.raquo.airstream.combine.MergeStream
 import com.raquo.airstream.core.AirstreamError.TransactionDepthExceeded
 import com.raquo.airstream.custom.CustomSource
-import com.raquo.airstream.platform.{undefined, UndefOr}
-import com.raquo.airstream.util.JsPriorityQueue
+import com.raquo.airstream.platform.UndefOr
 
 /** Transaction is a moment in time during which Airstream guarantees no FRP glitches.
   *
@@ -36,11 +35,10 @@ class Transaction private[airstream] (
   /** Create a transaction in the runtime the current thread is inside, or in the default runtime. */
   def this(code: Transaction => Any) = this(Runtime.current, code)
 
-  /** Priority queue of pending observables: sorted by their topoRank.
-    *
-    * Corollary: An Observable that is dequeue-d from here does not synchronously depend on any other pending observables
+  /** Queue access is valid only while this transaction executes. Resolve its engine from the installed runtime instead
+    * of retaining a reference in every transaction; the engine checks this transaction's identity before admission.
     */
-  private var maybePendingObservables: UndefOr[JsPriorityQueue[SyncObservable[?]]] = undefined
+  private def engine: TransactionEngine = Runtime.current.transactions
 
   /**
     * Note: The transaction may be _actually scheduled_ one layer deeper
@@ -85,25 +83,15 @@ class Transaction private[airstream] (
   }
 
   @inline private[core] def resolvePendingObservables(): Unit = {
-    maybePendingObservables.foreach { pendingObservables =>
-      while (pendingObservables.nonEmpty) {
-        // Fire the first pending observable and remove it from the list
-        pendingObservables.dequeue().syncFire(this)
-      }
-    }
+    engine.resolvePendingObservables(this)
   }
 
   private[airstream] def containsPendingObservable(observable: SyncObservable[?]): Boolean = {
-    maybePendingObservables.map(_.contains(observable)).getOrElse(false)
+    engine.containsPendingObservable(this, observable)
   }
 
   private[airstream] def enqueuePendingObservable(observable: SyncObservable[?]): Unit = {
-    val queue = maybePendingObservables.getOrElse {
-      val newQueue = new JsPriorityQueue[SyncObservable[?]](Protected.topoRank)
-      maybePendingObservables = newQueue
-      newQueue
-    }
-    queue.enqueue(observable)
+    engine.enqueuePendingObservable(this, observable)
   }
 
 }
