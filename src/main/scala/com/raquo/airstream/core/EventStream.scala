@@ -370,11 +370,11 @@ with EventStreamPlatformOps // Provides fromFuture, and the promise constructors
     *                 If false, the event will be emitted every time the stream is started.
     */
   def fromValue[A](event: A, emitOnce: Boolean = false): EventStream[A] = {
-    fromCustomSource[A](
-      shouldStart = startIndex => if (emitOnce) startIndex == 1 else true,
-      start = (fireEvent, _, _, _) => fireEvent(event),
-      stop = _ => ()
-    )
+    new CustomStreamSource[A]({ (fireValue, _, getStartIndex, _) =>
+      // Keep custom-source startup semantics without routing a constant value through four generic callbacks.
+      val config = CustomSource.Config(onStart = () => fireValue(event), onStop = () => ())
+      if (emitOnce) config.when(() => getStartIndex() == 1) else config
+    })
   }
 
   /** @param emitOnce if true, the event will be emitted at most one time.

@@ -16,7 +16,10 @@ class CustomStreamSource[A](
     * thunks) until `onStart` finishes, so [[resolveStartCallbacks]] can decide
     * how to schedule them. Asynchronously fired events bypass this, as they are never shared.
     */
-  private val onStartCallbacks: JsArray[Transaction => Unit] = JsArray()
+  private var firstStartCallback: Transaction => Unit = null
+
+  // Most sources emit zero or one startup event. Allocate the overflow buffer only for a second event.
+  private var moreStartCallbacks: JsArray[Transaction => Unit] = null
 
   override protected val config: Config = makeConfig(
     value => scheduleTransaction(fireValue(value, _)),
@@ -26,9 +29,14 @@ class CustomStreamSource[A](
   )
 
   override protected def onStart(): Unit = {
-    onStartCallbacks.length = 0 // should already be empty, but just in case
-    super.onStart() // runs config.onStart(), which may fill onStartCallbacks
+    clearStartCallbacks() // should already be empty, but just in case
+    super.onStart() // runs config.onStart(), which may collect startup callbacks
     resolveStartCallbacks()
+  }
+
+  private def clearStartCallbacks(): Unit = {
+    firstStartCallback = null
+    if (moreStartCallbacks ne null) moreStartCallbacks.length = 0
   }
 
   /** The source's ingress: the fire callbacks may be called from any thread, so the emission is delivered through the
@@ -54,7 +62,12 @@ class CustomStreamSource[A](
   private def collectDuringSharedStart(fire: Transaction => Unit): Boolean = runtime.run {
     val collecting = runtime.sharedStart.isInSharedStart && runtime.trxOnStartFix144
     if (collecting) {
-      onStartCallbacks.push(fire)
+      if (firstStartCallback eq null) {
+        firstStartCallback = fire
+      } else {
+        if (moreStartCallbacks eq null) moreStartCallbacks = JsArray()
+        moreStartCallbacks.push(fire)
+      }
     }
     collecting
   }
@@ -70,28 +83,31 @@ class CustomStreamSource[A](
     *    would let the rest overtake it through a deferring `merge`.
     *
     * Gated behind [[FeatureFlags.V18_TRX_ONSTART_FIX_144]]; when off,
-    * onStartCallbacks is always empty and this is a no-op.
+    * no callbacks are collected and this is a no-op.
     *
     * See https://github.com/raquo/Airstream/issues/144
     */
   private def resolveStartCallbacks(): Unit = {
-    val numEvents = onStartCallbacks.length
-    if (numEvents == 1) {
-      val fire = onStartCallbacks(0)
-      onStartCallbacks.length = 0
-      runtime.sharedStart.add { trx =>
-        if (isStarted) {
-          fire(trx)
+    val first = firstStartCallback
+    val numMore = if (moreStartCallbacks eq null) 0 else moreStartCallbacks.length
+    if (first ne null) {
+      if (numMore == 0) {
+        firstStartCallback = null
+        runtime.sharedStart.add { trx =>
+          if (isStarted) {
+            first(trx)
+          }
         }
+      } else {
+        Transaction(runtime)(first)
+        var i = 0
+        while (i < numMore) {
+          val fire = moreStartCallbacks(i)
+          Transaction(runtime)(fire)
+          i += 1
+        }
+        clearStartCallbacks()
       }
-    } else if (numEvents > 1) {
-      var i = 0
-      while (i < numEvents) {
-        val fire = onStartCallbacks(i)
-        Transaction(runtime)(fire)
-        i += 1
-      }
-      onStartCallbacks.length = 0
     }
   }
 }
