@@ -80,4 +80,22 @@ class TimerDeadlineSpec extends UnitSpec {
     timers.pendingCount shouldBe 1
     timers.clearAll()
   }
+
+  it("exposes an interval rescheduled by an outer snapshot to a nested pump") {
+    val timers = new RuntimeTimers(Runtime.default)
+    var ticks = 0
+    timers.setTimeout(0) {
+      timers.runDue(10) shouldBe 1
+    }
+    val repeating = timers.setInterval(1) {
+      ticks += 1
+      if (ticks == 2) timers.runDue(6) shouldBe 1
+    }
+    // The first nested pump moves the interval to 11. The outer snapshot still selects its handle,
+    // reschedules it from its own time 5 to 6, then calls the second nested pump.
+    timers.runDue(5) shouldBe 2
+    ticks shouldBe 3
+    timers.clearInterval(repeating)
+    timers.pendingCount shouldBe 0
+  }
 }

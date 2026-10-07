@@ -27,6 +27,10 @@ final class RuntimeTimers(private val runtime: Runtime) {
 
   private val pending: mutable.ListBuffer[Pending] = mutable.ListBuffer.empty
 
+  // A conservative lower bound: cancelling its entry may leave it stale until the next eligible pump.
+  // Scheduling can only lower it; after draining (even on failure) we recompute it from the remaining queue.
+  private var earliestDue: Double = Double.PositiveInfinity
+
   /** The clock as last reported to [[runDue]], which is what a new deadline is measured from. */
   private var currentTime: Double = 0.0
 
@@ -83,8 +87,14 @@ final class RuntimeTimers(private val runtime: Runtime) {
   private def schedule(delayMillis: Double, repeatEvery: Option[Double])(body: => Unit): Long = runtime.run {
     val handle = nextHandle
     nextHandle += 1
-    pending += Pending(handle, currentTime + math.max(0.0, delayMillis), repeatEvery, () => body)
+    val dueAt = currentTime + math.max(0.0, delayMillis)
+    enqueue(Pending(handle, dueAt, repeatEvery, () => body))
     handle
+  }
+
+  private def enqueue(entry: Pending): Unit = {
+    pending += entry
+    if (entry.dueAt < earliestDue) earliestDue = entry.dueAt
   }
 
   private def cancel(handle: Long): Unit = runtime.run {
@@ -107,11 +117,13 @@ final class RuntimeTimers(private val runtime: Runtime) {
   /** Cancel every waiting callback; the runtime's close calls this under the permit. */
   def cancelAll(): Unit = runtime.run {
     pending.clear()
+    earliestDue = Double.PositiveInfinity
   }
 
   /** Forget every waiting callback and reset the clock. Exists for tests, which need to start from a known queue. */
   def clearAll(): Unit = runtime.run {
     pending.clear()
+    earliestDue = Double.PositiveInfinity
     currentTime = 0.0
   }
 
@@ -141,18 +153,35 @@ final class RuntimeTimers(private val runtime: Runtime) {
   /** The pump itself, under the permit: the queue and the clock are runtime state. */
   private def runDueInside(now: Double): Int = {
     currentTime = now
-    val due = pending.filter(_.dueAt <= now).sortBy(_.dueAt).toList
-    var ran = 0
-    due.foreach { entry =>
-      val pendingIndex = pending.indexWhere(_.handle == entry.handle)
-      if (pendingIndex >= 0) {
-        pending.remove(pendingIndex)
-        entry.repeatEvery.foreach(period => pending += entry.copy(dueAt = now + period))
-        runtime.run(entry.body())
-        ran += 1
+    if (now < earliestDue) {
+      0
+    } else {
+      drainDue(now)
+    }
+  }
+
+  /** Keep the idle entry small enough to inline without pulling the snapshot and callback machinery into it. */
+  private def drainDue(now: Double): Int = {
+    try {
+      val due = pending.filter(_.dueAt <= now).sortBy(_.dueAt).toList
+      var ran = 0
+      due.foreach { entry =>
+        val pendingIndex = pending.indexWhere(_.handle == entry.handle)
+        if (pendingIndex >= 0) {
+          pending.remove(pendingIndex)
+          entry.repeatEvery.foreach(period => enqueue(entry.copy(dueAt = now + period)))
+          runtime.run(entry.body())
+          ran += 1
+        }
+      }
+      ran
+    } finally {
+      earliestDue = Double.PositiveInfinity
+      pending.foreach { entry =>
+        // NaN deadlines never satisfy the existing dueAt <= now test and must not poison this bound.
+        if (entry.dueAt < earliestDue) earliestDue = entry.dueAt
       }
     }
-    ran
   }
 }
 
