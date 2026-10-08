@@ -701,6 +701,9 @@ final class Runtime private (
 
 object Runtime {
 
+  /** The `activeCommand` value of a thread outside every command. Initialized before the default runtime captures it. */
+  private[airstream] val NoCommand: Long = -1L
+
   /** The default runtime's gate, which also knows whether the program has other runtimes (see [[RuntimeContexts]]). */
   private val defaultGate: DefaultGate = new DefaultGate
 
@@ -714,9 +717,6 @@ object Runtime {
     _ => defaultGate,
     initialUnhandledErrorCallbacks = JsArray(AirstreamError.consoleErrorCallback)
   )
-
-  /** The `activeCommand` value of a thread outside every command. */
-  private[airstream] val NoCommand: Long = -1L
 
   /** How many admitted commands a scheduled runtime's mailbox holds before it rejects the next one. */
   val DefaultCapacity: Int = 4096
