@@ -39,8 +39,9 @@ final class Runtime private (
 
   /** How this runtime admits a thread. Built first by the function its factory passes in, never chosen by a constructor branch:
     * only the factories contain `new ManagedGate`, so a program that calls none of them instantiates one gate class.
+    * Package visibility keeps the entry token's type tied to this gate when platform hot paths pair enterRun and exitRun.
     */
-  private val gate: RuntimeGate = gateFor(this)
+  private[airstream] val gate: RuntimeGate = gateFor(this)
 
   private val unhandledErrorCallbacks: JsArray[Throwable => Unit] = initialUnhandledErrorCallbacks
 
@@ -83,7 +84,10 @@ final class Runtime private (
     }
   }
 
-  @noinline private def enterRun(): gate.Entry = {
+  /** Admission shared by by-name bodies and platform hot paths that must not allocate a capturing closure.
+    * The returned token belongs to this runtime; pair every successful call with `exitRun` in a `finally` block.
+    */
+  @noinline private[airstream] def enterRun(): gate.Entry = {
     if (gate.isHeldByCurrentThread) {
       null
     } else {
@@ -96,7 +100,7 @@ final class Runtime private (
     }
   }
 
-  @noinline private def exitRun(entry: gate.Entry): Unit = {
+  @noinline private[airstream] def exitRun(entry: gate.Entry): Unit = {
     if (entry ne null) {
       gate.exit(entry)
       traceReleased()

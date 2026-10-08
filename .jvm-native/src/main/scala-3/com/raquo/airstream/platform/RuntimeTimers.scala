@@ -139,7 +139,14 @@ final class RuntimeTimers(private val runtime: Runtime) {
     * @return
     *   how many callbacks ran, so a driver can tell whether it made progress
     */
-  def runDue(now: Double): Int = runtime.run(runDueInside(now))
+  def runDue(now: Double): Int = {
+    val entry = runtime.enterRun()
+    try {
+      runDueInside(now)
+    } finally {
+      runtime.exitRun(entry)
+    }
+  }
 
   /** Report readiness from any thread: run the callbacks due by `now` in a turn of this runtime.
     *
