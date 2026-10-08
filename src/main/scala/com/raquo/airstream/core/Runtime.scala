@@ -118,24 +118,15 @@ final class Runtime private (
     }
   }
 
-  /** Schedule `transaction` inside this runtime: the entry of `run`, written out for the one body every root write runs, so
-    * that path allocates no closure and makes no call through a function value.
+  /** Schedule `transaction` inside this runtime with the same entry and cleanup as `run`.
+    * Passing the transaction directly allocates no closure on this root-write path.
     */
   private[airstream] def schedule(transaction: Transaction): Unit = {
-    if (gate.isHeldByCurrentThread) {
+    val entry = enterRun()
+    try {
       transaction.scheduleInside(this)
-    } else {
-      val entry = gate.tryEnter(this)
-      if (entry eq null) {
-        throw gate.refusal(this)
-      }
-      traceAcquired()
-      try {
-        transaction.scheduleInside(this)
-      } finally {
-        gate.exit(entry)
-        traceReleased()
-      }
+    } finally {
+      exitRun(entry)
     }
   }
 
