@@ -3,7 +3,7 @@ package com.raquo.airstream.core
 import com.raquo.airstream.platform.JsArray
 
 class ObserverList[Obs <: AnyRef](
-  private val observers: JsArray[Obs]
+  private[core] val observers: JsArray[Obs]
 ) extends AnyVal {
 
   @inline def length: Int = observers.length

@@ -70,15 +70,15 @@ trait WritableSignal[A] extends Signal[A] with WritableObservable[A] {
     // observer received it, so the two loop counters say it without a flag the loops would have to capture.
 
     var external = 0
-    while (external < externalObservers.length) {
-      val observer = externalObservers(external)
+    while (external < externalObserverCount) {
+      val observer = externalObserverAt(external)
       external += 1
       observer.onTry(nextValue)
     }
 
     var internal = 0
-    while (internal < internalObservers.length) {
-      val observer = internalObservers(internal)
+    while (internal < internalObserverCount) {
+      val observer = internalObserverAt(internal)
       internal += 1
       InternalObserver.onTry(observer, nextValue, transaction)
     }

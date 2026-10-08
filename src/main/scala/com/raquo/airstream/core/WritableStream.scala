@@ -20,8 +20,8 @@ trait WritableStream[A] extends EventStream[A] with WritableObservable[A] {
     // read on every step, so an observer added during the loop is notified too.
 
     var external = 0
-    while (external < externalObservers.length) {
-      val observer = externalObservers(external)
+    while (external < externalObserverCount) {
+      val observer = externalObserverAt(external)
       external += 1
       try {
         observer.onNext(nextValue)
@@ -31,8 +31,8 @@ trait WritableStream[A] extends EventStream[A] with WritableObservable[A] {
     }
 
     var internal = 0
-    while (internal < internalObservers.length) {
-      val observer = internalObservers(internal)
+    while (internal < internalObserverCount) {
+      val observer = internalObserverAt(internal)
       internal += 1
       InternalObserver.onNext(observer, nextValue, transaction)
     }
@@ -54,15 +54,15 @@ trait WritableStream[A] extends EventStream[A] with WritableObservable[A] {
     isSafeToRemoveObserver = false
 
     var external = 0
-    while (external < externalObservers.length) {
-      val observer = externalObservers(external)
+    while (external < externalObserverCount) {
+      val observer = externalObserverAt(external)
       external += 1
       observer.onError(nextError)
     }
 
     var internal = 0
-    while (internal < internalObservers.length) {
-      val observer = internalObservers(internal)
+    while (internal < internalObserverCount) {
+      val observer = internalObserverAt(internal)
       internal += 1
       InternalObserver.onError(observer, nextError, transaction)
     }

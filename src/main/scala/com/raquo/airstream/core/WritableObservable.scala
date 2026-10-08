@@ -47,13 +47,43 @@ trait WritableObservable[A] extends Observable[A] {
 
   protected def fireTry(nextValue: Try[A], transaction: Transaction): Unit
 
-  /** Note: Observer can be added more than once to an Observable.
-    * If so, it will observe each event as many times as it was added.
-    */
-  protected val externalObservers: ObserverList[Observer[A]] = new ObserverList(JsArray())
+  private var externalObserverStorage: JsArray[Observer[A]] = null
 
-  /** Note: This is enforced to be a Set outside of the type system #performance */
-  protected val internalObservers: ObserverList[InternalObserver[A]] = new ObserverList(JsArray())
+  private var internalObserverStorage: JsArray[InternalObserver[A]] = null
+
+  /** Explicit storage access materializes the array. Duplicate observer instances retain their registration order.
+    * Internal empty-state reads bypass this accessor so an unused list stays allocation-free.
+    */
+  final protected def externalObservers: ObserverList[Observer[A]] = {
+    if (externalObserverStorage eq null) externalObserverStorage = JsArray()
+    new ObserverList(externalObserverStorage)
+  }
+
+  /** Custom sources may install preallocated storage during construction using assignment instead of a val override. */
+  final protected def externalObservers_=(value: ObserverList[Observer[A]]): Unit = {
+    externalObserverStorage = value.observers
+  }
+
+  /** Internal observers are unique by the caller's contract. Explicit access always returns usable mutable storage. */
+  final protected def internalObservers: ObserverList[InternalObserver[A]] = {
+    if (internalObserverStorage eq null) internalObserverStorage = JsArray()
+    new ObserverList(internalObserverStorage)
+  }
+
+  /** Install a custom source's internal storage before registering any observers. */
+  final protected def internalObservers_=(value: ObserverList[InternalObserver[A]]): Unit = {
+    internalObserverStorage = value.observers
+  }
+
+  final protected def externalObserverCount: Int =
+    if (externalObserverStorage eq null) 0 else externalObserverStorage.length
+
+  final protected def internalObserverCount: Int =
+    if (internalObserverStorage eq null) 0 else internalObserverStorage.length
+
+  final protected def externalObserverAt(index: Int): Observer[A] = externalObserverStorage(index)
+
+  final protected def internalObserverAt(index: Int): InternalObserver[A] = internalObserverStorage(index)
 
   /** Set to true after onWillStart finishes, and until onStop finishes. It's set to false all other times.
     * We need this to prevent onWillStart from running twice in weird cases (we have a test for that).
@@ -103,14 +133,14 @@ trait WritableObservable[A] extends Observable[A] {
     * This observable calls [[onStop]] if this action has removed its last observer (internal or external).
     */
   override protected[airstream] def removeInternalObserverNow(observer: InternalObserver[A]): Unit = {
-    val removed = internalObservers.removeObserverNow(observer)
+    val removed = (internalObserverStorage ne null) && internalObservers.removeObserverNow(observer)
     if (removed) {
       maybeStop()
     }
   }
 
   override protected[airstream] def removeExternalObserverNow(observer: Observer[A]): Unit = {
-    val removed = externalObservers.removeObserverNow(observer)
+    val removed = (externalObserverStorage ne null) && externalObservers.removeObserverNow(observer)
     if (removed) {
       runtime.traceRemovalApplied(observer)
       maybeStop()
@@ -144,5 +174,5 @@ trait WritableObservable[A] extends Observable[A] {
     }
   }
 
-  override protected def numAllObservers: Int = externalObservers.length + internalObservers.length
+  override protected def numAllObservers: Int = externalObserverCount + internalObserverCount
 }

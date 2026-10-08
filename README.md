@@ -13,6 +13,10 @@ On JVM and Native, drive `com.raquo.airstream.platform.Timers.runDue(nowMillis)`
 the thread owning the reactive graph; Future callbacks must also execute on that
 thread. See [the platform contribution guide](CONTRIBUTING.md#platform-source-sets).
 
+Observer arrays are allocated on demand. Custom sources that override protected observer storage
+need the small [storage-initialization migration](CONTRIBUTING.md#custom-observer-storage);
+ordinary subscriptions and ownership calls stay the same.
+
 Airstream is a small state propagation and streaming library for Scala.js. Primary differences from other solutions:
 
 - **Mandatory [ownership](#ownership) of leaky resources** – it is impossible to create a subscription without specifying when it shall be destroyed. This helps prevent memory leaks and unexpected behaviour.

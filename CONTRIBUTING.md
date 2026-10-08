@@ -51,6 +51,29 @@ the older vendored Tuplez shim and retains the upstream MIT-licensed source.
 
 
 
+## Custom observer storage
+
+`WritableObservable` allocates its external and internal observer arrays independently on first use.
+Empty-state checks and delivery to an unused observer kind do not create an array. Explicit access to
+the protected `externalObservers` or `internalObservers` getter always returns usable mutable storage;
+its aliases remain live after cleanup and restart. Once allocated, the array is retained for reuse.
+
+The accessors are now final. A custom source that previously supplied storage through a protected val
+override installs that same storage with an assignment in its constructor body:
+
+```scala
+// Previous version:
+override protected val externalObservers = suppliedExternal
+override protected val internalObservers = suppliedInternal
+
+// This version, in the subclass body before registering observers:
+externalObservers = suppliedExternal
+internalObservers = suppliedInternal
+```
+
+This preserves the supplied arrays and their aliases. Do not replace storage while subscriptions are
+active. Normal `addObserver`, `foreach`, owner cleanup and shared-start batching require no changes.
+
 ## N-Generators
 
 Airstream offers several types of methods like `combineWith` and `mapN` in varying arity. These live in packages called `generated`, in implicit classes that are generated at compile time by generators located in the `project` folder.
