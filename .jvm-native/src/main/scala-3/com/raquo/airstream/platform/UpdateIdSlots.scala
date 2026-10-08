@@ -12,6 +12,12 @@ package com.raquo.airstream.platform
   */
 private[airstream] object UpdateIdSlots {
 
+  inline def capture[A](values: JsArray[A])(inline read: A => Int): JsArray[Int] = {
+    val slots = sized(values.length)
+    values.forEachWithIndex((value, ix) => record(slots, ix, read(value)))
+    slots
+  }
+
   /** One slot per parent, each holding 0 until it is recorded. */
   def sized(length: Int): JsArray[Int] = JsArray.intSlots(length)
 
