@@ -10,9 +10,9 @@ trait MultiParentSignal[I, O] extends WritableSignal[O] {
   protected val parents: JsArray[Signal[I]]
 
   /** The update id last seen from each parent, by the parent's index; see [[UpdateIdSlots]] for why it is unboxed. */
-  protected[airstream] lazy val _parentLastUpdateIds: UpdateIdSlots = {
+  protected lazy val _parentLastUpdateIds: JsArray[Int] = {
     val slots = UpdateIdSlots.sized(parents.length)
-    parents.forEachWithIndex((parent, ix) => slots.record(ix, Protected.lastUpdateId(parent)))
+    parents.forEachWithIndex((parent, ix) => UpdateIdSlots.record(slots, ix, Protected.lastUpdateId(parent)))
     slots
   }
 
@@ -29,9 +29,9 @@ trait MultiParentSignal[I, O] extends WritableSignal[O] {
     var parentHasUpdated = false
     parents.forEachWithIndex { (parent, ix) =>
       val newLastUpdateId = Protected.lastUpdateId(parent)
-      val lastSeenParentUpdateId = _parentLastUpdateIds.seen(ix)
+      val lastSeenParentUpdateId = UpdateIdSlots.seen(_parentLastUpdateIds, ix)
       if (newLastUpdateId != lastSeenParentUpdateId) {
-        _parentLastUpdateIds.record(ix, newLastUpdateId)
+        UpdateIdSlots.record(_parentLastUpdateIds, ix, newLastUpdateId)
         parentHasUpdated = true
       }
     }

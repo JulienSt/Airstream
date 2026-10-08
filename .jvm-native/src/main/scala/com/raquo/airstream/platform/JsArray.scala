@@ -15,7 +15,11 @@ import scala.collection.mutable
   * The surface is only what Airstream uses. Copying a foreign API in full would leave a second API to keep correct, and the
   * shared spec that runs against both platforms would have to cover operations nobody calls.
   */
-final class JsArray[A] private (private val underlying: mutable.ArrayBuffer[A]) {
+sealed class JsArray[A] private (private val buffer: mutable.ArrayBuffer[A]) {
+
+  // The primitive update-id implementation materializes its buffer only when a caller uses the public array surface.
+  // Ordinary arrays keep the same single buffer field and representation.
+  private[platform] def underlying: mutable.ArrayBuffer[A] = buffer
 
   @inline private def emptySlot: A = undefined.asInstanceOf[A]
 
@@ -150,6 +154,50 @@ final class JsArray[A] private (private val underlying: mutable.ArrayBuffer[A]) 
 
 /** Ways of getting an array without naming the constructor. */
 object JsArray {
+
+  /** A live compatibility array whose internal indexed Int access remains unboxed until its public surface is used. */
+  final private class IntSlots(length: Int) extends JsArray[Int](null) {
+
+    private var compact: Array[Int] = new Array[Int](length)
+
+    private var boxed: mutable.ArrayBuffer[Int] = null
+
+    override private[platform] def underlying: mutable.ArrayBuffer[Int] = {
+      if (compact ne null) {
+        val result = new mutable.ArrayBuffer[Int](compact.length)
+        var index = 0
+        while (index < compact.length) {
+          result.addOne(compact(index))
+          index += 1
+        }
+        boxed = result
+        compact = null
+      }
+      boxed
+    }
+
+    def seen(index: Int): Int = {
+      if (compact ne null) compact(index)
+      else boxed(index)
+    }
+
+    def record(index: Int, value: Int): Unit = {
+      if (compact ne null) compact(index) = value
+      else boxed.update(index, value)
+    }
+  }
+
+  private[platform] def intSlots(length: Int): JsArray[Int] = new IntSlots(length)
+
+  private[platform] def seenInt(array: JsArray[Int], index: Int): Int = array match {
+    case slots: IntSlots => slots.seen(index)
+    case other => other(index)
+  }
+
+  private[platform] def recordInt(array: JsArray[Int], index: Int, value: Int): Unit = array match {
+    case slots: IntSlots => slots.record(index, value)
+    case other => other.update(index, value)
+  }
 
   /** Reserve known result capacity without adding elements or an intermediate collection. */
   private[platform] def withCapacity[A](capacity: Int): JsArray[A] =
