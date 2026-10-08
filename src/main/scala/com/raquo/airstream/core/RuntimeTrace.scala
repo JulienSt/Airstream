@@ -5,12 +5,15 @@ package com.raquo.airstream.core
   * and applied, managed-task results delivered or suppressed, bridge messages applied, a close cutting admission off and
   * finishing, and the runtime failing.
   *
-  * A runtime reports to one trace installed with `Runtime.traceTo`, or to none, which costs the hot path a null check per
-  * event and nothing else. Every method does nothing by default so a test overrides only what it reads. A trace is
+  * A runtime reports to one trace installed with `Runtime.traceTo`, or to none, which guards argument evaluation on the hot path
+  * without allocating trace data. Every method does nothing by default so a test overrides only what it reads. A trace is
   * called from whichever thread the event happens on and must record without taking a lock that would serialise the
   * runtimes it watches: the recording must not become the synchronisation that makes an unsafe schedule pass.
   */
 trait RuntimeTrace {
+
+  /** Internal dispatch guard: real traces record; a runtime's own gate represents no installed trace. */
+  @inline private[airstream] def isRecording: Boolean = true
 
   /** A thread took `runtime`'s permit: an outermost `run` or a drainer's turn. */
   def permitAcquired(runtime: Runtime): Unit = ()

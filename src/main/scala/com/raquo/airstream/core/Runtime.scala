@@ -56,12 +56,12 @@ final class Runtime private (
   /** The id of the command whose turn the permit holder is running, or `Runtime.NoCommand` outside a command. */
   private var activeCommand: Long = Runtime.NoCommand
 
-  /** The trace this runtime reports its observation points to, or null for none. */
-  private var sink: RuntimeTrace = null
+  /** The installed trace, or this runtime's gate as an inactive destination. */
+  private var sink: RuntimeTrace = gate
 
   /** Report this runtime's observation points to `trace`; see [[RuntimeTrace]]. Install it before the runtime is used. */
   def traceTo(trace: RuntimeTrace): Unit = {
-    sink = trace
+    sink = if (trace eq null) gate else trace
   }
 
   /** Where this runtime is in its lifecycle. A direct runtime stays open; a scheduled runtime fails when its scheduler
@@ -132,14 +132,14 @@ final class Runtime private (
 
   /** The calling thread just took the permit and installed the context: report it to the trace, when one is installed. */
   private def traceAcquired(): Unit = {
-    if (sink ne null) {
+    if (sink.isRecording) {
       sink.permitAcquired(this)
     }
   }
 
   /** The calling thread just cleared the context and gave the permit back: report it to the trace, when one is installed. */
   private def traceReleased(): Unit = {
-    if (sink ne null) {
+    if (sink.isRecording) {
       sink.permitReleased(this)
       sink.contextRestored(this)
     }
@@ -270,7 +270,7 @@ final class Runtime private (
     */
   private def runClaimedTurn(command: Mailbox.Command, g: RuntimeGate)(entry: g.Entry): Unit = {
     activeCommand = command.id
-    if (sink ne null) {
+    if (sink.isRecording) {
       sink.permitAcquired(this)
       sink.turnStarted(this, command.id)
     }
@@ -287,7 +287,7 @@ final class Runtime private (
     val torn =
       if (transactions.isClearState) null
       else new IllegalStateException(s"${displayName}: the transaction engine is not clear after command ${command.id}")
-    if (sink ne null) {
+    if (sink.isRecording) {
       sink.turnCompleted(this, command.id)
     }
     if (failure eq null) {
@@ -311,7 +311,7 @@ final class Runtime private (
     * hand still learns that accepted work settled as failed, and to the trace.
     */
   private[airstream] def reportFailure(cause: Throwable): Unit = {
-    if (sink ne null) {
+    if (sink.isRecording) {
       sink.runtimeFailed(this, cause)
     }
     sendUnhandledError(AirstreamError.RuntimeFailed(this, cause))
@@ -324,28 +324,28 @@ final class Runtime private (
 
   /** Report a transaction created in this runtime to the trace, when one is installed. */
   private[airstream] def traceTransactionCreated(): Unit = {
-    if (sink ne null) {
+    if (sink.isRecording) {
       sink.transactionCreated(this, tracedCommand)
     }
   }
 
   /** Report a managed task's delivered result to the trace, when one is installed. */
   private[airstream] def traceTaskDelivered(taskId: Long): Unit = {
-    if (sink ne null) {
+    if (sink.isRecording) {
       sink.taskDelivered(this, taskId)
     }
   }
 
   /** Report a managed task's suppressed result to the trace, when one is installed. */
   private[airstream] def traceTaskSuppressed(taskId: Long): Unit = {
-    if (sink ne null) {
+    if (sink.isRecording) {
       sink.taskSuppressed(this, taskId)
     }
   }
 
   /** Report a bridge message applied in this runtime to the trace, when one is installed. */
   private[airstream] def traceBridgeMessageDelivered(sequence: Long): Unit = {
-    if (sink ne null) {
+    if (sink.isRecording) {
       sink.bridgeMessageDelivered(this, sequence)
     }
   }
@@ -357,14 +357,14 @@ final class Runtime private (
 
   /** Report a requested external-observer removal to the trace, when one is installed. */
   private[airstream] def traceRemovalRequested(observer: Observer[?]): Unit = {
-    if (sink ne null) {
+    if (sink.isRecording) {
       sink.removalRequested(this, observer)
     }
   }
 
   /** Report an applied external-observer removal to the trace, when one is installed. */
   private[airstream] def traceRemovalApplied(observer: Observer[?]): Unit = {
-    if (sink ne null) {
+    if (sink.isRecording) {
       sink.removalApplied(this, observer)
     }
   }
@@ -477,14 +477,14 @@ final class Runtime private (
 
   /** Report the admission cutoff of a close to the trace, when one is installed. */
   private[airstream] def traceAdmissionClosed(): Unit = {
-    if (sink ne null) {
+    if (sink.isRecording) {
       sink.admissionClosed(this)
     }
   }
 
   /** Report a finished close to the trace, when one is installed. */
   private[airstream] def traceClosed(): Unit = {
-    if (sink ne null) {
+    if (sink.isRecording) {
       sink.runtimeClosed(this)
     }
   }
