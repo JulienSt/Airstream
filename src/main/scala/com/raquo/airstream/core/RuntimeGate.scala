@@ -16,7 +16,7 @@ import com.raquo.airstream.platform.{AtomicCell, DefaultPermit, RuntimePermit, T
   * Every method that takes the permit or explains a refusal is asked only when the calling thread does not hold the permit
   * already: the runtime runs a nested body directly, so only an outermost entry reaches the gate.
   */
-sealed abstract private[airstream] class RuntimeGate {
+sealed private[airstream] trait RuntimeGate {
 
   /** What an outermost entry hands to its exit, never null; null is the refusal. A managed runtime hands its context cell, so an
     * entry looks the thread-local up once; the default runtime installs no context and hands back its own gate.

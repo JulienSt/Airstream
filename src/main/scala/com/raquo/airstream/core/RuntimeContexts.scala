@@ -20,7 +20,7 @@ import com.raquo.airstream.platform.ThreadSlot
   * one implementation, call it directly, inline its constant answers and drop the slot; on the JVM the JIT does the same while the
   * second class is not loaded.
   */
-sealed abstract private[airstream] class RuntimeContexts {
+sealed private[airstream] trait RuntimeContexts {
 
   /** The non-default runtime whose turn the calling thread is inside, or null. */
   def activeOther: Runtime

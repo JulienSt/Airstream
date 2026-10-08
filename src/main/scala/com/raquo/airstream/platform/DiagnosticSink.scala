@@ -3,7 +3,7 @@ package com.raquo.airstream.platform
 /** Internal dispatch keeps ordinary platform output independent of the optional function adapter and its level values.
   * Destinations are immutable; a new runtime snapshots the current destination by reference.
   */
-abstract private[airstream] class DiagnosticSink {
+private[airstream] trait DiagnosticSink {
 
   def log(prefix: String, value: Any): Unit
 
