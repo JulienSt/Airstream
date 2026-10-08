@@ -73,7 +73,7 @@ final class Runtime private (
     * @throws ForeignThreadEntry when the calling thread may not take the permit
     * @throws CrossRuntimeAccess when the calling thread is inside another runtime's turn
     */
-  def run[A](body: => A): A = {
+  @inline def run[A](body: => A): A = {
     val entry = enterRun()
     // Keep admission and cleanup shared while allowing the JS optimizer to inline the caller's block once.
     try {
