@@ -823,7 +823,9 @@ object Runtime {
       current
     } else {
       val shared = parents(0).runtime
-      parents.forEach(parent => requireSame(shared, parent.runtime))
+      if (defaultGate.contexts.checksEdges) {
+        parents.forEach(parent => requireSame(shared, parent.runtime))
+      }
       shared.requireAccess()
       shared
     }
@@ -832,7 +834,9 @@ object Runtime {
   /** The one runtime `first` and `others` share, for a sampling observable. Checked for access by the constructing thread. */
   private[airstream] def sharedBy(first: Observable[?], others: JsArray[? <: Observable[?]]): Runtime = {
     val shared = first.runtime
-    others.forEach(other => requireSame(shared, other.runtime))
+    if (defaultGate.contexts.checksEdges) {
+      others.forEach(other => requireSame(shared, other.runtime))
+    }
     shared.requireAccess()
     shared
   }
@@ -843,7 +847,9 @@ object Runtime {
     */
   private[airstream] def sharedBy(runtimes: Seq[Runtime]): Runtime = {
     runtimes.headOption.fold(current) { shared =>
-      runtimes.foreach(runtime => requireSame(shared, runtime))
+      if (defaultGate.contexts.checksEdges) {
+        runtimes.foreach(runtime => requireSame(shared, runtime))
+      }
       shared
     }
   }

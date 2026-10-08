@@ -25,6 +25,9 @@ sealed abstract private[airstream] class RuntimeContexts {
   /** The non-default runtime whose turn the calling thread is inside, or null. */
   def activeOther: Runtime
 
+  /** True once a factory has published the context needed by more than one runtime identity. */
+  def checksEdges: Boolean
+
   /** Reject an edge between `expected` and `actual` unless they are the same runtime.
     *
     * @throws CrossRuntimeEdge when they differ
@@ -41,6 +44,8 @@ private[airstream] object RuntimeContexts {
 
     override def activeOther: Runtime = null
 
+    override def checksEdges: Boolean = false
+
     override def requireSame(expected: Runtime, actual: Runtime): Unit = ()
   }
 
@@ -55,6 +60,8 @@ private[airstream] object RuntimeContexts {
     def cell: ThreadSlot.Cell[Runtime] = slot.cell
 
     override def activeOther: Runtime = slot.get
+
+    override def checksEdges: Boolean = true
 
     override def requireSame(expected: Runtime, actual: Runtime): Unit = {
       if (expected ne actual) {
