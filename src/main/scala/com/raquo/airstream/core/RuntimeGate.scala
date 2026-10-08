@@ -1,7 +1,7 @@
 package com.raquo.airstream.core
 
 import com.raquo.airstream.core.AirstreamError.{ClosedRuntimeEntry, CrossRuntimeAccess, ForeignThreadEntry, ScheduledRuntimeEntry}
-import com.raquo.airstream.platform.{AtomicCell, DefaultPermit, RuntimePermit, ThreadSlot}
+import com.raquo.airstream.platform.{AtomicCell, DefaultDiagnosticSink, DefaultPermit, RuntimePermit, ThreadSlot}
 
 /** How one runtime admits the calling thread: its permit, the context its turns install, and what a refused thread is told.
   *
@@ -16,7 +16,7 @@ import com.raquo.airstream.platform.{AtomicCell, DefaultPermit, RuntimePermit, T
   * Every method that takes the permit or explains a refusal is asked only when the calling thread does not hold the permit
   * already: the runtime runs a nested body directly, so only an outermost entry reaches the gate.
   */
-sealed private[airstream] trait RuntimeGate extends RuntimeTrace {
+sealed private[airstream] trait RuntimeGate extends RuntimeTrace with DefaultDiagnosticSink {
 
   /** Reuse the gate as the uninstalled trace; never evaluate event arguments for this destination. */
   @inline final override private[airstream] def isRecording: Boolean = false

@@ -1,7 +1,7 @@
 package com.raquo.airstream.core
 
 import com.raquo.airstream.core.AirstreamError.{DeliveryRejected, SubmissionRejected, WaitInsideTurn}
-import com.raquo.airstream.platform.{AtomicCounter, DefaultDiagnosticSink, DevTools, DiagnosticLevel, DiagnosticSink, FunctionDiagnosticSink, JsArray, RuntimePermit, RuntimeTimers}
+import com.raquo.airstream.platform.{AtomicCounter, DevTools, DiagnosticLevel, DiagnosticSink, FunctionDiagnosticSink, JsArray, RuntimePermit, RuntimeTimers}
 
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.control.NonFatal
@@ -588,13 +588,13 @@ final class Runtime private (
     diagnosticDestination = new FunctionDiagnosticSink(destination)
   }
 
-  private var diagnosticDestination: DiagnosticSink = DefaultDiagnosticSink
+  private var diagnosticDestination: DiagnosticSink = gate
 
   private[airstream] def diagnosticSink: DiagnosticSink = diagnosticDestination
 
   /** Restore the platform destination without retaining the optional function adapter. */
   private[airstream] def resetDiagnostics(): Unit = {
-    diagnosticDestination = DefaultDiagnosticSink
+    diagnosticDestination = gate
   }
 
   /** Copy the configuration of `source` into this runtime: the snapshot a new runtime takes of the default runtime. */
