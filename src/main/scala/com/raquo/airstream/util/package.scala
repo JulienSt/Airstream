@@ -28,7 +28,7 @@ package object util {
     *  checks such as Var / WriteBus de-duplication.
     */
   @inline def hasDuplicateKeys[A](items: Seq[A])(key: A => Any): Boolean = {
-    val seenKeys = JsSet.empty[Any]
+    val seenKeys = new JsSet[Any]
     items.foreach { item =>
       seenKeys.add(key(item))
     }

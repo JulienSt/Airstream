@@ -3,7 +3,7 @@ package com.raquo.airstream.platform
 /** Parent update IDs stay in the original protected JsArray surface. JavaScript numbers already need no boxing. */
 private[airstream] object UpdateIdSlots {
 
-  def sized(length: Int): JsArray[Int] = {
+  @inline def sized(length: Int): JsArray[Int] = {
     val slots = JsArray[Int]()
     var index = 0
     while (index < length) {

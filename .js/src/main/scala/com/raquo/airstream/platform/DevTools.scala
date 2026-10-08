@@ -13,16 +13,16 @@ import scala.scalajs.js
 object DevTools {
 
   /** Send `value` to the current destination, labelled with `prefix`. */
-  def log(prefix: String, value: Any): Unit = Runtime.current.diagnosticSink.log(prefix, value)
+  @inline def log(prefix: String, value: Any): Unit = Runtime.current.diagnosticSink.log(prefix, value)
 
   /** Report something the developer should look at but that did not break anything. */
-  def warn(message: String): Unit = Runtime.current.diagnosticSink.warn(message, ())
+  @inline def warn(message: String): Unit = Runtime.current.diagnosticSink.warn(message, ())
 
   /** Report something that did break. */
-  def error(message: String): Unit = Runtime.current.diagnosticSink.error(message, ())
+  @inline def error(message: String): Unit = Runtime.current.diagnosticSink.error(message, ())
 
   /** Report a failure that happened while formatting another error, without bypassing the installed destination. */
-  def consoleErrorCallbackFailed(err: Throwable): Unit =
+  @inline def consoleErrorCallbackFailed(err: Throwable): Unit =
     Runtime.current.diagnosticSink.error("Error in AirstreamError.consoleErrorCallback:", err)
 
   /** Send the default runtime's diagnostics somewhere other than the console from now on. */

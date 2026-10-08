@@ -29,10 +29,10 @@ final class RuntimeTimers(private val runtime: Runtime) {
   /** The timeouts that have not fired or been cleared, so the runtime's close can cancel them. */
   // The browser's own Set, not a Scala collection: these two sets are linked into every program, and a Scala hash set
   // would bring its implementation along.
-  private val liveTimeouts: JsSet[RuntimeTimers.TimerHandle] = JsSet.empty
+  private val liveTimeouts: JsSet[RuntimeTimers.TimerHandle] = new JsSet[RuntimeTimers.TimerHandle]()
 
   /** The intervals that have not been cleared, so the runtime's close can cancel them. */
-  private val liveIntervals: JsSet[RuntimeTimers.IntervalHandle] = JsSet.empty
+  private val liveIntervals: JsSet[RuntimeTimers.IntervalHandle] = new JsSet[RuntimeTimers.IntervalHandle]()
 
   /** Inside the runtime: a timeout that fires is no longer live, then its body runs. */
   @inline private def fire(handle: RuntimeTimers.TimerHandle, body: => Unit): Unit = {
