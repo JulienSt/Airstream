@@ -559,7 +559,7 @@ final class Runtime private (
   private[airstream] val transactions: TransactionEngine = new TransactionEngine(this)
 
   /** The shared-start batching state of this runtime. Touched only under the permit. */
-  private[airstream] val sharedStart: SharedStart = new SharedStart(this)
+  @inline private[airstream] def sharedStart: TransactionEngine = transactions
 
   /** This runtime's delayed callbacks. On JVM and Native they wait in a queue the host pumps with `timers.runDue`; on
     * Scala.js the event loop fires them. Either way a due callback runs inside this runtime.

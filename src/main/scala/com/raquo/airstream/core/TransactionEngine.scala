@@ -1,8 +1,8 @@
 package com.raquo.airstream.core
 
-import com.raquo.airstream.platform.{undefined, UndefOr}
+import com.raquo.airstream.platform.{undefined, JsArray, UndefOr}
 
-/** Scheduling state owned by one runtime. Only its permit holder may enter or drain this engine.
+/** Scheduling and shared-start batching state owned by one runtime. Only its permit holder may enter or drain this engine.
   *
   * New transactions created during a turn are deferred children. At the end of that transaction, pushing its children
   * onto the pending stack in reverse creation order makes the oldest child next, ahead of every older sibling. Thus
@@ -109,5 +109,126 @@ final private[airstream] class TransactionEngine(runtime: Runtime) {
     //  Errors in `code` are routed to unhandled errors, so `Transaction(code)` only throws
     //  when an unhandled-error callback itself throws (e.g. the unsafe rethrow callback).
     //  This is not very predictable, so we should fix it.
+  }
+
+  /** The shared-start batching state of one runtime: whether a `shared` block is executing, the callbacks it has collected
+    * and the transactions created while it ran. It used to be `Transaction.onStart`, a process-wide singleton, so a thread
+    * starting its own observable while another thread was inside a shared start had its start event and its root
+    * transaction filed under that other thread's block. Owned by a runtime, a block only ever collects
+    * the work of the thread holding that runtime's permit.
+    *
+    * The batching rules are unchanged; see `Transaction.onStart` for the user-facing description.
+    */
+
+  private var _isInSharedStart: Boolean = false
+
+  private val pendingCallbacks: JsArray[Transaction => Unit] = JsArray()
+
+  private var callbackIndex = 0
+
+  private val postStartTransactions: JsArray[Transaction] = JsArray()
+
+  private var postStartIndex = 0
+
+  /** Whether we're executing synchronously inside a shared-start block.
+    * Read by custom sources to decide how to schedule events that are fired onStart.
+    */
+  def isInSharedStart: Boolean = _isInSharedStart
+
+  /** Delay `transaction` until the current shared-start block resolves. Only called while a block is executing. */
+  def enqueuePostStart(transaction: Transaction): Unit = {
+    postStartTransactions.push(transaction)
+  }
+
+  /** Run `code` as the (outermost) shared-start block unless one is already running or `when` is false. */
+  @inline def shared[A](code: => A, when: Boolean = true): A = {
+    val resolveAfter = !_isInSharedStart && when
+    if (resolveAfter) {
+      _isInSharedStart = true
+    }
+    // One use of the by-name block lets the JS optimizer inline it without retaining a callable for two branches.
+    try {
+      code
+    } finally {
+      if (resolveAfter) {
+        _isInSharedStart = false
+        resolve()
+      }
+    }
+  }
+
+  /** Add a callback to execute once the new shared transaction gets executed.
+    *
+    * This must only be called while a shared-start block is executing.
+    *
+    * @param callback - Must not throw!
+    */
+  def add(callback: Transaction => Unit): Unit = {
+    if (!_isInSharedStart) {
+      throw new Exception("Transaction.onStart.add was called outside of a Transaction.onStart.shared block. This is likely a bug in Airstream.")
+    }
+    pendingCallbacks.push(callback)
+  }
+
+  private def resolve(): Unit = {
+    if (pendingCallbacks.length == 0) {
+      if (postStartTransactions.length > 0) {
+        new Transaction(runtime,
+          { _ =>
+            drainPostStartTransactions()
+          })
+      }
+    } else {
+      new Transaction(runtime,
+        { trx =>
+          // #TODO[Integrity] What if calling callback(trx) calls onStart.add?
+          //  Is it ok to put it into the same list, or should it go into a new list,
+          //  to be executed in a separate transaction?
+          while (pendingCallbacks.length > 0) {
+            val callback = nextCallback()
+            try {
+              callback(trx)
+            } catch {
+              case err: Throwable =>
+                // #TODO[Integrity] I'm not 100% sure that this is what we need to do here.
+                runtime.sendUnhandledError(err)
+            }
+          }
+          // Any transactions created during the shared start
+          // that weren't converted to callbacks, will now be
+          // scheduled, and will be executed after this shared
+          // transaction finishes (they are marked as its
+          // children), in the same order as they were created.
+          drainPostStartTransactions()
+        })
+    }
+  }
+
+  /** Release a consumed reference before calling user code. Clearing at the last slot preserves the old empty-queue
+    * observation inside a nested shared, and a throwing callback leaves the cursor at the next unconsumed entry.
+    */
+  private def nextCallback(): Transaction => Unit = {
+    val callback = pendingCallbacks(callbackIndex)
+    pendingCallbacks(callbackIndex) = null
+    callbackIndex += 1
+    if (callbackIndex == pendingCallbacks.length) {
+      pendingCallbacks.length = 0
+      callbackIndex = 0
+    }
+    callback
+  }
+
+  /** Scheduling only queues children of the running transaction. Reuse the array without shifting its remaining tail. */
+  private def drainPostStartTransactions(): Unit = {
+    while (postStartTransactions.length > 0) {
+      val transaction = postStartTransactions(postStartIndex)
+      postStartTransactions(postStartIndex) = null
+      postStartIndex += 1
+      if (postStartIndex == postStartTransactions.length) {
+        postStartTransactions.length = 0
+        postStartIndex = 0
+      }
+      runtime.transactions.add(transaction)
+    }
   }
 }
