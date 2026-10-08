@@ -13,17 +13,17 @@ import scala.scalajs.js
 object DevTools {
 
   /** Send `value` to the current destination, labelled with `prefix`. */
-  def log(prefix: String, value: Any): Unit = Runtime.current.diagnostics(DiagnosticLevel.Log, prefix, value)
+  def log(prefix: String, value: Any): Unit = Runtime.current.diagnosticSink.log(prefix, value)
 
   /** Report something the developer should look at but that did not break anything. */
-  def warn(message: String): Unit = Runtime.current.diagnostics(DiagnosticLevel.Warn, message, ())
+  def warn(message: String): Unit = Runtime.current.diagnosticSink.warn(message, ())
 
   /** Report something that did break. */
-  def error(message: String): Unit = Runtime.current.diagnostics(DiagnosticLevel.Error, message, ())
+  def error(message: String): Unit = Runtime.current.diagnosticSink.error(message, ())
 
   /** Report a failure that happened while formatting another error, without bypassing the installed destination. */
   def consoleErrorCallbackFailed(err: Throwable): Unit =
-    Runtime.current.diagnostics(DiagnosticLevel.Error, "Error in AirstreamError.consoleErrorCallback:", err)
+    Runtime.current.diagnosticSink.error("Error in AirstreamError.consoleErrorCallback:", err)
 
   /** Send the default runtime's diagnostics somewhere other than the console from now on. */
   def setSink(destination: (DiagnosticLevel, String, Any) => Unit): Unit = {
@@ -32,7 +32,7 @@ object DevTools {
 
   /** Send the default runtime's diagnostics back to the console. */
   def resetSink(): Unit = {
-    Runtime.default.diagnostics = DiagnosticSinks.console
+    Runtime.default.resetDiagnostics()
   }
 
   @inline def breakpoint(): Unit =

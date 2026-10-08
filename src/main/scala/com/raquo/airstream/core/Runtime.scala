@@ -1,7 +1,7 @@
 package com.raquo.airstream.core
 
 import com.raquo.airstream.core.AirstreamError.{DeliveryRejected, SubmissionRejected, WaitInsideTurn}
-import com.raquo.airstream.platform.{AtomicCounter, DevTools, DiagnosticLevel, DiagnosticSinks, JsArray, RuntimePermit, RuntimeTimers}
+import com.raquo.airstream.platform.{AtomicCounter, DefaultDiagnosticSink, DevTools, DiagnosticLevel, DiagnosticSink, FunctionDiagnosticSink, JsArray, RuntimePermit, RuntimeTimers}
 
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.control.NonFatal
@@ -587,7 +587,20 @@ final class Runtime private (
   private[airstream] var strictSignalErrorReporting: Boolean = false
 
   /** Where this runtime's diagnostics go (level, message, value); see `DevTools.setSink`. */
-  private[airstream] var diagnostics: (DiagnosticLevel, String, Any) => Unit = DiagnosticSinks.default
+  private[airstream] def diagnostics: (DiagnosticLevel, String, Any) => Unit = diagnosticDestination.function
+
+  private[airstream] def diagnostics_=(destination: (DiagnosticLevel, String, Any) => Unit): Unit = {
+    diagnosticDestination = new FunctionDiagnosticSink(destination)
+  }
+
+  private var diagnosticDestination: DiagnosticSink = DefaultDiagnosticSink
+
+  private[airstream] def diagnosticSink: DiagnosticSink = diagnosticDestination
+
+  /** Restore the platform destination without retaining the optional function adapter. */
+  private[airstream] def resetDiagnostics(): Unit = {
+    diagnosticDestination = DefaultDiagnosticSink
+  }
 
   /** Copy the configuration of `source` into this runtime: the snapshot a new runtime takes of the default runtime. */
   private def configureFrom(source: Runtime): Unit = {
@@ -597,7 +610,7 @@ final class Runtime private (
     trxOnStartFix144 = source.trxOnStartFix144
     immediateDynSubRemovalFix145 = source.immediateDynSubRemovalFix145
     strictSignalErrorReporting = source.strictSignalErrorReporting
-    diagnostics = source.diagnostics
+    diagnosticDestination = source.diagnosticDestination
   }
 
   private var lastUpdateId: Int = 0
