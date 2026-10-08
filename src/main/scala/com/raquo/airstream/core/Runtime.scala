@@ -74,14 +74,32 @@ final class Runtime private (
     * @throws CrossRuntimeAccess when the calling thread is inside another runtime's turn
     */
   def run[A](body: => A): A = {
-    if (gate.isHeldByCurrentThread) {
+    val entry = enterRun()
+    // Keep admission and cleanup shared while allowing the JS optimizer to inline the caller's block once.
+    try {
       body
+    } finally {
+      exitRun(entry)
+    }
+  }
+
+  @noinline private def enterRun(): gate.Entry = {
+    if (gate.isHeldByCurrentThread) {
+      null
     } else {
       val entry = gate.tryEnter(this)
       if (entry eq null) {
         throw gate.refusal(this)
       }
-      entered(gate)(entry, body)
+      traceAcquired()
+      entry
+    }
+  }
+
+  @noinline private def exitRun(entry: gate.Entry): Unit = {
+    if (entry ne null) {
+      gate.exit(entry)
+      traceReleased()
     }
   }
 
