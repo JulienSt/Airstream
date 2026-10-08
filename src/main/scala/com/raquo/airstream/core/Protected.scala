@@ -47,7 +47,7 @@ object Protected {
     maxTopoRank(minRank = Protected.topoRank(observable), observables)
   }
 
-  def maxTopoRank[O <: Observable[?]](
+  @inline def maxTopoRank[O <: Observable[?]](
     minRank: Int,
     observables: JsArray[O]
   ): Int = {
