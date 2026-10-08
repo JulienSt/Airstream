@@ -70,14 +70,15 @@ sealed private[airstream] trait RuntimeGate {
   * one, [[RuntimeContexts.Single]] answers that no thread is. On Scala.js the permit is one flag; on JVM and Native it records the
   * holding thread, taken with a compare-and-set wherever a second thread can exist.
   */
-final private[airstream] class DefaultGate extends DefaultPermit with RuntimeGate {
+final private[airstream] class DefaultGate extends DefaultPermit with RuntimeGate with RuntimeContexts.Single {
 
   override type Entry = DefaultGate
 
   /** Which runtimes besides the default one the program has: none until the first factory call, which switches this once, before
-    * it constructs the second runtime. Volatile because the switching thread and the threads entering the default runtime differ.
+    * it constructs the second runtime. The gate itself supplies the initial stateless answers. Volatile because the switching
+    * thread and the threads entering the default runtime differ.
     */
-  @volatile private var others: RuntimeContexts = RuntimeContexts.Single
+  @volatile private var others: RuntimeContexts = this
 
   /** The program's knowledge of the other runtimes; see [[RuntimeContexts]]. */
   @inline def contexts: RuntimeContexts = others

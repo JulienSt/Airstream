@@ -38,9 +38,9 @@ sealed private[airstream] trait RuntimeContexts {
 private[airstream] object RuntimeContexts {
 
   /** The program has created no runtime besides the default one: every thread is inside the default runtime or inside none, and
-    * every runtime an edge can join is the default runtime.
+    * every runtime an edge can join is the default runtime. Mixed into its gate, this needs no separate context object.
     */
-  object Single extends RuntimeContexts {
+  trait Single extends RuntimeContexts {
 
     override def activeOther: Runtime = null
 
