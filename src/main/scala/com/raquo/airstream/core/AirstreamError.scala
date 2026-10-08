@@ -6,6 +6,11 @@ sealed abstract class AirstreamError(message: String) extends Throwable(message)
 
 object AirstreamError {
 
+  /** Shared by every engine after a transaction finishes; the function retains no runtime or transaction. */
+  private[core] val throwDeadTransactionError: Transaction => Any = { trx =>
+    throw new Exception(s"Attempted to run Transaction $trx after it was already executed.")
+  }
+
   /** If true, strict signals will emit an unhandled errors if they emit a Failure (for any reason)
     * while not having any observers to observe this. For example, if you do myVar.setTry(Failure(err)),
     * and the Var's signal has no observers, directly or indirectly, Airstream would emit an error into

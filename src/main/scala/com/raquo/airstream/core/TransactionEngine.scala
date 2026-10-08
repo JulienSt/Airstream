@@ -65,7 +65,7 @@ final private[airstream] class TransactionEngine(runtime: Runtime) {
       try {
         run(transaction)
       } finally {
-        transaction.code = TransactionEngine.throwDeadTrxError
+        transaction.code = AirstreamError.throwDeadTransactionError
       }
       while (children.nonEmpty) {
         pending.push(children.pop())
@@ -109,12 +109,5 @@ final private[airstream] class TransactionEngine(runtime: Runtime) {
     //  Errors in `code` are routed to unhandled errors, so `Transaction(code)` only throws
     //  when an unhandled-error callback itself throws (e.g. the unsafe rethrow callback).
     //  This is not very predictable, so we should fix it.
-  }
-}
-
-private[airstream] object TransactionEngine {
-
-  private val throwDeadTrxError: Transaction => Any = { trx =>
-    throw new Exception(s"Attempted to run Transaction $trx after it was already executed.")
   }
 }
