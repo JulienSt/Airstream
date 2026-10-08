@@ -50,7 +50,7 @@ final class Runtime private (
   @inline private[airstream] def mailbox: Mailbox = gate.mailbox
 
   /** Ids of the commands submitted to this runtime, direct or scheduled; 64-bit, never reused. */
-  private val commandIds: AtomicCounter = new AtomicCounter
+  private lazy val commandIds: AtomicCounter = new AtomicCounter
 
   /** The id of the command whose turn the permit holder is running, or `Runtime.NoCommand` outside a command. */
   private var activeCommand: Long = Runtime.NoCommand
