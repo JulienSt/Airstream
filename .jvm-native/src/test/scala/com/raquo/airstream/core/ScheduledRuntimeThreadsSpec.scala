@@ -9,6 +9,7 @@ import com.raquo.airstream.state.Var
 import java.util.concurrent.{CountDownLatch, TimeUnit}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 import scala.collection.mutable
+import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
 
@@ -242,6 +243,31 @@ class ScheduledRuntimeThreadsSpec extends UnitSpec {
       val failure = intercept[RuntimeFailed](receipt.awaitCompleted(timeout))
       failure.runtime shouldBe runtime
       runtime.state shouldBe RuntimeState.Failed
+      runtime.isEntered shouldBe false
+    }
+  }
+
+  it("publishes Failed before a dispatched admission failure completes its receipt") {
+    withPool("failed-receipt", 1) { pool =>
+      val queued = new AtomicReference[Runnable](null)
+      val dispatcher = new ExecutionContext {
+        override def execute(task: Runnable): Unit = queued.set(task)
+        override def reportFailure(cause: Throwable): Unit = throw cause
+      }
+      val runtime = Runtime.dispatched(dispatcher)
+      runtime.unregisterUnhandledErrorCallback(AirstreamError.consoleErrorCallback)
+      val receipt = runtime.submit(())
+      val observed = new CountDownLatch(1)
+      val stateAtCompletion = new AtomicReference[RuntimeState](null)
+      receipt.completed.onComplete { _ =>
+        stateAtCompletion.set(runtime.state)
+        observed.countDown()
+      }(ExecutionContext.parasitic)
+      // Register the immediate completion observer before the wrong thread attempts to enter the runtime.
+      pool.execute(queued.get)
+      awaitLatch(observed) shouldBe true
+      stateAtCompletion.get shouldBe RuntimeState.Failed
+      intercept[RuntimeFailed](receipt.awaitCompleted(timeout)).runtime shouldBe runtime
       runtime.isEntered shouldBe false
     }
   }

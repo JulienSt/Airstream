@@ -219,8 +219,7 @@ final private[airstream] class Mailbox(
         } catch {
           case err: Throwable =>
             // A turn that could not claim the permit, left the engine torn or died of a fatal error: the runtime fails.
-            settleFailed(next, err)
-            fail(err)
+            fail(err, next)
             running = false
         }
         turns += 1
@@ -234,12 +233,20 @@ final private[airstream] class Mailbox(
   }
 
   /** Move the runtime to `Failed` because of `err` and settle every queued receipt; idempotent. */
-  private[airstream] def fail(err: Throwable): Unit = {
+  private[airstream] def fail(err: Throwable): Unit = fail(err, null)
+
+  /** Publish the terminal state before completing the current receipt: its callbacks may run immediately.
+    * Keep that receipt ahead of the failure report and queued receipts, as in the original drain order.
+    */
+  private def fail(err: Throwable, current: Command): Unit = {
     cause.compareAndSet(null, err)
-    if (
+    val changed =
       lifecycle.compareAndSet(RuntimeState.Open, RuntimeState.Failed) ||
-      lifecycle.compareAndSet(RuntimeState.Closing, RuntimeState.Failed)
-    ) {
+        lifecycle.compareAndSet(RuntimeState.Closing, RuntimeState.Failed)
+    if (current ne null) {
+      settleFailed(current, err)
+    }
+    if (changed) {
       runtime.reportFailure(cause.get)
     }
     val requested = closing.get
