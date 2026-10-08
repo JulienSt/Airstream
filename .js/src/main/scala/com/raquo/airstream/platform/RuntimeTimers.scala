@@ -35,7 +35,7 @@ final class RuntimeTimers(private val runtime: Runtime) {
   private val liveIntervals: JsSet[RuntimeTimers.IntervalHandle] = JsSet.empty
 
   /** Inside the runtime: a timeout that fires is no longer live, then its body runs. */
-  private def fire(handle: RuntimeTimers.TimerHandle, body: => Unit): Unit = {
+  @inline private def fire(handle: RuntimeTimers.TimerHandle, body: => Unit): Unit = {
     liveTimeouts.delete(handle)
     body
   }
