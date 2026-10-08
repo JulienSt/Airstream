@@ -114,7 +114,7 @@ final private[airstream] class DefaultGate extends DefaultPermit with RuntimeGat
     if (other ne null) CrossRuntimeAccess(active = other, target = runtime) else ForeignThreadEntry(runtime)
   }
 
-  override def accessRefusal(runtime: Runtime): AirstreamError = {
+  @inline override def accessRefusal(runtime: Runtime): AirstreamError = {
     val other = others.activeOther
     if (other ne null) {
       CrossRuntimeAccess(active = other, target = runtime)

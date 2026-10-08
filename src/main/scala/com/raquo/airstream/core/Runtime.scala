@@ -131,14 +131,14 @@ final class Runtime private (
   }
 
   /** The calling thread just took the permit and installed the context: report it to the trace, when one is installed. */
-  private def traceAcquired(): Unit = {
+  @inline private def traceAcquired(): Unit = {
     if (sink.isRecording) {
       sink.permitAcquired(this)
     }
   }
 
   /** The calling thread just cleared the context and gave the permit back: report it to the trace, when one is installed. */
-  private def traceReleased(): Unit = {
+  @inline private def traceReleased(): Unit = {
     if (sink.isRecording) {
       sink.permitReleased(this)
       sink.contextRestored(this)
@@ -323,7 +323,7 @@ final class Runtime private (
   }
 
   /** Report a transaction created in this runtime to the trace, when one is installed. */
-  private[airstream] def traceTransactionCreated(): Unit = {
+  @inline private[airstream] def traceTransactionCreated(): Unit = {
     if (sink.isRecording) {
       sink.transactionCreated(this, tracedCommand)
     }
@@ -356,14 +356,14 @@ final class Runtime private (
   private[airstream] def admitsSubmissions: Boolean = mailbox ne null
 
   /** Report a requested external-observer removal to the trace, when one is installed. */
-  private[airstream] def traceRemovalRequested(observer: Observer[?]): Unit = {
+  @inline private[airstream] def traceRemovalRequested(observer: Observer[?]): Unit = {
     if (sink.isRecording) {
       sink.removalRequested(this, observer)
     }
   }
 
   /** Report an applied external-observer removal to the trace, when one is installed. */
-  private[airstream] def traceRemovalApplied(observer: Observer[?]): Unit = {
+  @inline private[airstream] def traceRemovalApplied(observer: Observer[?]): Unit = {
     if (sink.isRecording) {
       sink.removalApplied(this, observer)
     }
@@ -671,7 +671,7 @@ final class Runtime private (
     * @throws CrossRuntimeAccess when the calling thread is inside another runtime's turn
     * @throws ForeignThreadEntry when the permit would refuse the calling thread
     */
-  private[airstream] def requireAccess(): Unit = {
+  @inline private[airstream] def requireAccess(): Unit = {
     if (!gate.isHeldByCurrentThread) {
       val refusal = gate.accessRefusal(this)
       if (refusal ne null) {
