@@ -136,6 +136,11 @@ final private[airstream] class TransactionEngine(runtime: Runtime) {
     */
   def isInSharedStart: Boolean = _isInSharedStart
 
+  /** Original binary flag setter, called only after the compatibility facade enters this runtime. */
+  private[core] def setSharedStartFlag(value: Boolean): Unit = {
+    _isInSharedStart = value
+  }
+
   /** Delay `transaction` until the current shared-start block resolves. Only called while a block is executing. */
   def enqueuePostStart(transaction: Transaction): Unit = {
     postStartTransactions.push(transaction)

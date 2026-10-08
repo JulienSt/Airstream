@@ -162,6 +162,15 @@ object Transaction {
     */
   object onStart {
 
+    // These Scala-private accessors were public JVM methods in the original artifact.
+    // Preserve their binary entry points without reintroducing a process-wide flag.
+    private[Transaction] def _isInSharedStart: Boolean = isInSharedStart
+
+    private[Transaction] def _isInSharedStart_=(value: Boolean): Unit = {
+      val runtime = Runtime.current
+      runtime.run(runtime.sharedStart.setSharedStartFlag(value))
+    }
+
     /** Whether we're executing synchronously inside a shared-start block.
       * Read by custom sources to decide how to schedule events that are fired onStart.
       */
