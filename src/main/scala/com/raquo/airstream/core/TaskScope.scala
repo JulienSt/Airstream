@@ -85,14 +85,22 @@ final class TaskScope private[airstream] (runtime: Runtime) {
   /** On the worker: hand the result to the runtime. Nothing here touches the scope; the decision is the runtime's. */
   private def returnResult[A](task: ManagedTask, launchedIn: Long, result: Try[A], deliver: Try[A] => Unit): Unit = {
     val receipt = runtime.submit(applyResult(task, launchedIn, result, deliver))
-    receipt.accepted.value.flatMap(_.failed.toOption).foreach { rejection =>
-      if (runtime.isShutDown) {
-        // The runtime closed on purpose and its close closed this scope: a late result is suppressed.
-        runtime.traceTaskSuppressed(task.id)
-        task.settle(TaskOutcome.Suppressed)
-      } else {
-        rejectResult(task, result, rejection)
-      }
+    receipt.accepted.value.flatMap(_.failed.toOption) match {
+      case Some(rejection) =>
+        if (runtime.isShutDown) {
+          // The runtime closed on purpose and its close closed this scope: a late result is suppressed.
+          runtime.traceTaskSuppressed(task.id)
+          task.settle(TaskOutcome.Suppressed)
+        } else {
+          rejectResult(task, result, rejection)
+        }
+      case None =>
+        // An admitted result can still be discarded when the runtime fails before its delivery turn.
+        receipt.completed.failed.foreach { rejection =>
+          if (task.outcome.value.isEmpty) {
+            rejectResult(task, result, rejection)
+          }
+        }(ExecutionContext.parasitic)
     }
   }
 
