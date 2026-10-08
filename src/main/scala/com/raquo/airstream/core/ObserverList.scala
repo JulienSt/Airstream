@@ -17,7 +17,11 @@ class ObserverList[Obs <: AnyRef](
     val index = indexOfRef(observer)
     val shouldRemove = index != -1
     if (shouldRemove) {
-      observers.splice(index, deleteCount = 1)
+      if (index == observers.length - 1) {
+        val _ = observers.pop()
+      } else {
+        observers.splice(index, deleteCount = 1)
+      }
     }
     shouldRemove
   }

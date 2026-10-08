@@ -66,6 +66,11 @@ sealed class JsArray[A] private (private val buffer: mutable.ArrayBuffer[A]) {
     if (underlying.isEmpty) { emptySlot }
     else { underlying.remove(0) }
 
+  /** Remove the last element without creating a collection of removed elements. */
+  def pop(): A =
+    if (underlying.isEmpty) { emptySlot }
+    else { underlying.remove(underlying.length - 1) }
+
   /** Remove `deleteCount` elements starting at `index`, then insert `values` there.
     *
     * Named after the JavaScript operation it stands in for, because the call sites reading it were written against that

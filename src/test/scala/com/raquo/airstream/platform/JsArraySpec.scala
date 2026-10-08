@@ -13,7 +13,7 @@ import scala.collection.mutable
   * that the replacement behaves like the thing it replaces — a claim that is otherwise impossible to check and easy to get
   * quietly wrong, since the two implementations share no code at all.
   *
-  * The surface under test is the one Airstream actually calls: length, apply, update, push, shift, splice, indexOf, map,
+  * The surface under test is the one Airstream actually calls: length, apply, update, push, pop, shift, splice, indexOf, map,
   * forEach, and the JavaScript array's comma-separated string rendering. Nothing wider. An abstraction that copies a
   * foreign API in full leaves a second API to keep correct, and every operation added here has to be kept in agreement
   * across two implementations forever.
@@ -62,6 +62,21 @@ class JsArraySpec extends AnyFunSpec with Matchers {
       val array = JsArray[Int]()
       (1 to 5).foreach(value => array.push(value))
       array.length shouldBe 5
+    }
+  }
+
+  describe("pop") {
+
+    it("removes the tail in reverse insertion order and returns the empty sentinel after exhaustion") {
+      val array = JsArray[UndefOr[String]](lift("first"), lift("last"))
+      array.pop().get shouldBe "last"
+      array.length shouldBe 1
+      array(0).get shouldBe "first"
+      array.pop().get shouldBe "first"
+      array.pop().isEmpty shouldBe true
+      array.length shouldBe 0
+      array.push(lift("again"))
+      array.pop().get shouldBe "again"
     }
   }
 
