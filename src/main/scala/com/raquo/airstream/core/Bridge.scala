@@ -7,7 +7,7 @@ import com.raquo.airstream.platform.AtomicFlag
 import com.raquo.airstream.state.Var
 
 import scala.collection.mutable
-import scala.concurrent.{Future, Promise}
+import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.Try
 import scala.util.control.NonFatal
 
@@ -155,7 +155,10 @@ final private[core] class SourceEndpoint[A](sourceRuntime: Runtime, target: Targ
     val closed = Promise[Unit]()
     val receipt = sourceRuntime.submit(detachThenCloseTarget(closed))
     receipt.accepted.value.flatMap(_.failed.toOption) match {
-      case None => new Receipt(receipt.id, Future.unit, closed.future)
+      case None =>
+        // Admission can succeed before a failed runtime discards the queued detach command.
+        receipt.completed.failed.foreach(closed.tryFailure)(ExecutionContext.parasitic)
+        new Receipt(receipt.id, Future.unit, closed.future)
       case Some(_) if detached.get =>
         // The source runtime closed and released this endpoint after its last turn, so every message it sent is already
         // admitted at the target; only the target endpoint is left.
@@ -231,8 +234,12 @@ sealed abstract private[core] class TargetEndpoint[A](val runtime: Runtime) {
   /** Close in a target turn and settle `done` there; a target that already closed or is closing counts as closed. */
   def closeAfter(done: Promise[Unit]): Unit = {
     val receipt = runtime.submit(closeAndSettle(done))
-    receipt.accepted.value.flatMap(_.failed.toOption).foreach { rejection =>
-      if (runtime.state eq RuntimeState.Open) done.tryFailure(rejection) else done.trySuccess(())
+    receipt.accepted.value.flatMap(_.failed.toOption) match {
+      case Some(rejection) =>
+        if (runtime.state eq RuntimeState.Open) done.tryFailure(rejection) else done.trySuccess(())
+      case None =>
+        // The target may fail after accepting the close, so its receipt must also settle our acknowledgement.
+        receipt.completed.failed.foreach(done.tryFailure)(ExecutionContext.parasitic)
     }
   }
 
