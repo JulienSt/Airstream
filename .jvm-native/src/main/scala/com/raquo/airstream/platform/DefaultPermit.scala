@@ -15,7 +15,13 @@ final private[airstream] class DefaultPermit {
   private val holder: AtomicReference[Thread] = new AtomicReference[Thread](null)
 
   /** True when the calling thread holds the permit, which is what makes a nested entry free. */
-  def isHeldByCurrentThread: Boolean = holder.get() eq Thread.currentThread()
+  def isHeldByCurrentThread: Boolean = {
+    if (Multithreading.enabled) {
+      holder.get() eq Thread.currentThread()
+    } else {
+      holder.get() ne null
+    }
+  }
 
   /** True while any thread holds the permit. */
   def isHeld: Boolean = holder.get() ne null
