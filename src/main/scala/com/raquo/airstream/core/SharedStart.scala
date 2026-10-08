@@ -33,7 +33,7 @@ final private[airstream] class SharedStart(runtime: Runtime) {
   }
 
   /** Run `code` as the (outermost) shared-start block unless one is already running or `when` is false. */
-  def shared[A](code: => A, when: Boolean = true): A = {
+  @inline def shared[A](code: => A, when: Boolean = true): A = {
     val resolveAfter = !_isInSharedStart && when
     if (resolveAfter) {
       _isInSharedStart = true
