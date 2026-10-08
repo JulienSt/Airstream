@@ -6,7 +6,7 @@ import com.raquo.airstream.platform.{undefined, UndefOr}
   *
   * New transactions created during a turn are deferred children. At the end of that transaction, pushing its children
   * onto the pending stack in reverse creation order makes the oldest child next, ahead of every older sibling. Thus
-  * depth-first order needs neither an ancestor stack nor a parent-to-children map. Buffers retain capacity between turns,
+  * depth-first order needs neither an ancestor stack nor a parent-to-children map. Buffers are reused between turns,
   * but clear every consumed reference; transaction objects themselves are never reused.
   */
 final private[airstream] class TransactionEngine(runtime: Runtime) {
