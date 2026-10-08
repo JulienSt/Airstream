@@ -11,48 +11,49 @@ import com.raquo.airstream.platform.{undefined, JsArray, UndefOr}
   */
 final private[airstream] class TransactionEngine(runtime: Runtime) {
 
-  private var current: UndefOr[Transaction] = undefined
+  // These private slots contain only constructed objects; null means absent. peekStack keeps the UndefOr boundary.
+  private var current: Transaction = null
 
   private val children = new TransactionStack
 
   private val pending = new TransactionStack
 
-  private var pendingObservables: UndefOr[PendingObservables] = undefined
+  private var pendingObservables: PendingObservables = null
 
   def containsPendingObservable(transaction: Transaction, observable: SyncObservable[?]): Boolean = {
     requireCurrent(transaction)
-    pendingObservables.isDefined && pendingObservables.get.contains(observable)
+    (pendingObservables ne null) && pendingObservables.contains(observable)
   }
 
   def enqueuePendingObservable(transaction: Transaction, observable: SyncObservable[?]): Unit = {
     requireCurrent(transaction)
-    if (pendingObservables.isEmpty) pendingObservables = new PendingObservables
-    pendingObservables.get.enqueue(observable)
+    if (pendingObservables eq null) pendingObservables = new PendingObservables
+    pendingObservables.enqueue(observable)
   }
 
   def resolvePendingObservables(transaction: Transaction): Unit = {
     requireCurrent(transaction)
-    if (pendingObservables.isDefined) {
-      val queue = pendingObservables.get
+    if (pendingObservables ne null) {
+      val queue = pendingObservables
       while (queue.nonEmpty) queue.dequeue().syncFire(transaction)
     }
   }
 
   private def requireCurrent(transaction: Transaction): Unit = {
-    if (current.isEmpty || (current.get ne transaction)) {
+    if ((current eq null) || (current ne transaction)) {
       throw new IllegalStateException("Pending observables require the currently executing transaction")
     }
   }
 
   def add(newTransaction: Transaction): Unit = {
-    if (current.isDefined) {
+    if (current ne null) {
       children.push(newTransaction)
     } else {
       current = newTransaction
       try {
         drain()
       } finally {
-        current = undefined
+        current = null
         children.clear()
         pending.clear()
       }
@@ -60,8 +61,8 @@ final private[airstream] class TransactionEngine(runtime: Runtime) {
   }
 
   private def drain(): Unit = {
-    while (current.isDefined) {
-      val transaction = current.get
+    while (current ne null) {
+      val transaction = current
       try {
         run(transaction)
       } finally {
@@ -73,20 +74,20 @@ final private[airstream] class TransactionEngine(runtime: Runtime) {
       if (pending.nonEmpty) {
         current = pending.pop()
       } else {
-        current = undefined
+        current = null
       }
     }
   }
 
   /** The currently executing transaction, if any; a completed parent is not an executing transaction. */
-  def peekStack(): UndefOr[Transaction] = current
+  def peekStack(): UndefOr[Transaction] = if (current eq null) undefined else current
 
   /** Depth is stored on each transaction when created, so pending siblings need no live ancestor objects. */
-  def depthOfNewTransaction: Int = if (current.isEmpty) 1 else current.get.depthOfChild
+  def depthOfNewTransaction: Int = if (current eq null) 1 else current.depthOfChild
 
   def isClearState: Boolean =
-    current.isEmpty && !children.nonEmpty && !pending.nonEmpty &&
-      (pendingObservables.isEmpty || !pendingObservables.get.nonEmpty)
+    (current eq null) && !children.nonEmpty && !pending.nonEmpty &&
+      ((pendingObservables eq null) || !pendingObservables.nonEmpty)
 
   /** Errors are reported inside the same turn; queued descendants retain their depth-first position. */
   private def run(transaction: Transaction): Unit = {
@@ -103,7 +104,7 @@ final private[airstream] class TransactionEngine(runtime: Runtime) {
           runtime.sendUnhandledError(err)
       }
     } finally {
-      if (pendingObservables.isDefined) pendingObservables.get.clear()
+      if (pendingObservables ne null) pendingObservables.clear()
     }
     // @TODO[API,Integrity]
     //  Errors in `code` are routed to unhandled errors, so `Transaction(code)` only throws
