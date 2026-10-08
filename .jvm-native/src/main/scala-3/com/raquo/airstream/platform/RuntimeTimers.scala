@@ -19,9 +19,7 @@ import scala.collection.mutable
 final class RuntimeTimers(private val runtime: Runtime) {
 
   import RuntimeTimers.{IntervalHandle, TimerHandle}
-
-  /** One waiting callback: when it is due, whether it repeats, and what to run. */
-  private final case class Pending(handle: Long, dueAt: Double, repeatEvery: Option[Double], body: () => Unit)
+  import Timers.Pending
 
   private var nextHandle: Long = 0L
 
@@ -84,7 +82,9 @@ final class RuntimeTimers(private val runtime: Runtime) {
   // runtime state, so a thread the runtime does not admit is rejected before it touches them, and a
   // call from inside a turn is a free reentrant entry.
 
-  private def schedule(delayMillis: Double, repeatEvery: Option[Double])(body: => Unit): Long = runtime.run {
+  // The default Timers facade uses raw IDs to preserve its original opaque Long handles. Runtime-specific public
+  // handles retain their owner checks; neither path moves mutable state out of this runtime.
+  private[platform] def schedule(delayMillis: Double, repeatEvery: Option[Double])(body: => Unit): Long = runtime.run {
     val handle = nextHandle
     nextHandle += 1
     val dueAt = currentTime + math.max(0.0, delayMillis)
@@ -97,7 +97,7 @@ final class RuntimeTimers(private val runtime: Runtime) {
     if (entry.dueAt < earliestDue) earliestDue = entry.dueAt
   }
 
-  private def cancel(handle: Long): Unit = runtime.run {
+  private[platform] def cancel(handle: Long): Unit = runtime.run {
     pending.indexWhere(_.handle == handle) match {
       case -1    => ()
       case index => pending.remove(index)
