@@ -7,7 +7,7 @@ package com.raquo.airstream.platform
   * from the very turn that created it, and `Runtime.isEntered` reports it. Writing one field on the way in and out is what that
   * costs; the binding, the scheduled permit and the per-thread context are not linked unless the program creates a runtime.
   */
-final private[airstream] class DefaultPermit {
+private[airstream] trait DefaultPermit {
 
   private var entered: Boolean = false
 

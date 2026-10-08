@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicReference
   * link-time constant, leaves a check and a release store in its place and the linker drops the compare-and-set. The
   * JVM always has threads and always keeps it.
   */
-final private[airstream] class DefaultPermit {
+private[airstream] trait DefaultPermit {
 
   private val holder: AtomicReference[Thread] = new AtomicReference[Thread](null)
 

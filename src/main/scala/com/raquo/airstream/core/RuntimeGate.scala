@@ -70,11 +70,9 @@ sealed private[airstream] trait RuntimeGate {
   * one, [[RuntimeContexts.Single]] answers that no thread is. On Scala.js the permit is one flag; on JVM and Native it records the
   * holding thread, taken with a compare-and-set wherever a second thread can exist.
   */
-final private[airstream] class DefaultGate extends RuntimeGate {
+final private[airstream] class DefaultGate extends DefaultPermit with RuntimeGate {
 
   override type Entry = DefaultGate
-
-  private val permit: DefaultPermit = new DefaultPermit
 
   /** Which runtimes besides the default one the program has: none until the first factory call, which switches this once, before
     * it constructs the second runtime. Volatile because the switching thread and the threads entering the default runtime differ.
@@ -89,11 +87,11 @@ final private[airstream] class DefaultGate extends RuntimeGate {
     others = RuntimeContexts.PerThread
   }
 
-  @inline override def isHeldByCurrentThread: Boolean = permit.isHeldByCurrentThread
+  @inline override def isHeldByCurrentThread: Boolean = super[DefaultPermit].isHeldByCurrentThread
 
-  override def isHeld: Boolean = permit.isHeld
+  override def isHeld: Boolean = super[DefaultPermit].isHeld
 
-  override def holderName: Option[String] = permit.holderName
+  override def holderName: Option[String] = super[DefaultPermit].holderName
 
   /** The default runtime floats: any thread may enter it while no other thread is inside. */
   override def boundThreadName: Option[String] = None
@@ -103,9 +101,9 @@ final private[airstream] class DefaultGate extends RuntimeGate {
     if (others.activeOther ne null) null else claim(runtime)
   }
 
-  @inline override def claim(runtime: Runtime): DefaultGate = permit.acquireFor(this)
+  @inline override def claim(runtime: Runtime): DefaultGate = acquireFor(this)
 
-  @inline override def exit(entry: DefaultGate): Unit = permit.release()
+  @inline override def exit(entry: DefaultGate): Unit = release()
 
   override def refusal(runtime: Runtime): AirstreamError = {
     val other = others.activeOther
@@ -116,7 +114,7 @@ final private[airstream] class DefaultGate extends RuntimeGate {
     val other = others.activeOther
     if (other ne null) {
       CrossRuntimeAccess(active = other, target = runtime)
-    } else if (!permit.mayAcquire) {
+    } else if (!mayAcquire) {
       ForeignThreadEntry(runtime)
     } else {
       null
