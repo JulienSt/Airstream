@@ -15,8 +15,8 @@ import scala.util.{Failure, Success}
 
 /** The scheduled strategy on real threads (JVM and Native): one drainer under a racing pool, no lost command
   * under two producers, context and permit restored after every exit path with the worker reused by another
-  * runtime, cross-runtime lock cycles rejected before blocking, parallel progress of separate runtimes
-  *, waits rejected inside a turn, direct submit from a foreign thread, and the dispatched variant for a UI
+  * runtime, cross-runtime lock cycles rejected before blocking, parallel progress of separate runtimes,
+  * waits rejected inside a turn, direct submit from a foreign thread, and the dispatched variant for a UI
   * thread. Every wait is a latch with a timeout, never a sleep.
   */
 class ScheduledRuntimeThreadsSpec extends UnitSpec {
