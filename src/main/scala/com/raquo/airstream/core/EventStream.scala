@@ -12,6 +12,7 @@ import com.raquo.airstream.extensions._
 import com.raquo.airstream.javaflow.FlowPublisherStream
 import com.raquo.airstream.map.{MapOps, MapStream}
 import com.raquo.airstream.misc._
+import com.raquo.airstream.ownership.{ManualOwner, Owner, Subscription}
 import com.raquo.airstream.platform.{JsArray, JsCallback, PlatformCallbacks}
 import com.raquo.airstream.scan.{ScanLeftSignal, ScanLeftStreamOps}
 import com.raquo.airstream.split.SplittableOneStream
@@ -19,7 +20,8 @@ import com.raquo.airstream.status.{AsyncStatusObservable, Status}
 import com.raquo.airstream.timing._
 
 import java.util.concurrent.Flow
-import scala.concurrent.{ExecutionContext, Future}
+import java.util.concurrent.CancellationException
+import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.{Success, Try}
 
 trait EventStream[+A]
@@ -30,6 +32,25 @@ with CombineStreamOps[A] // combineWith, combineWithFn, withCurrentValueOf, samp
 with ScanLeftStreamOps[A] // scanLeft, scanLeftRecover, reduceLeft, etc.
 with EventStreamInstancePlatformOps[A] // dynamicImport on platforms that provide a module loader
 {
+
+  /** Retain the first event as a future, then remove its subscription. Ending the owner's lifetime before an event
+    * fails the future instead of leaving a caller waiting for a source that can no longer deliver.
+    *
+    * @param owner owns the observation until its first value or error
+    * @return the first value, the first stream error, or cancellation when the owner ends first
+    */
+  def firstFuture()(using owner: Owner): Future[A] = runtime.run {
+    val result = Promise[A]()
+    val observation = new ManualOwner
+    val lifetime = new Subscription(owner, () => {
+      result.tryFailure(new CancellationException("The owner ended before the stream's first event"))
+      observation.killSubscriptions()
+    })
+    addObserver(Observer.fromTry[A] { event =>
+      if (result.tryComplete(event)) lifetime.kill()
+    })(using observation)
+    result.future
+  }
 
   /** See more map-like operators in [[MapOps]]
     *
