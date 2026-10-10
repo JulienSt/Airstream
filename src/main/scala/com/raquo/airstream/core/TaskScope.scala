@@ -25,6 +25,39 @@ import scala.util.control.NonFatal
   */
 final class TaskScope private[airstream] (runtime: Runtime) {
 
+  /** Schedule completion handling on the caller's executor after the task settles, including suppressed or refused delivery.
+    * The returned future retains its result or failure so a caller can wait for cleanup before releasing that executor.
+    *
+    * @tparam A external computation result
+    * @tparam B prepared value retained before publication
+    * @tparam C completion handling result
+    * @param executor caller-owned executor for work and completion handling
+    * @param work external computation
+    * @param prepare create an admitted value inside the delivery turn
+    * @param publish apply the preparation result inside that turn
+    * @param finish handle the retained computation and outcome once on the executor
+    * @return preparation metadata and the completion handling result
+    */
+  def launchFinalized[A, B, C](executor: ExecutionContext)(work: CancelSignal => A)(prepare: Try[A] => B)(
+    publish: Try[B] => Unit
+  )(finish: TaskCompletion[A] => C): FinalizedTask[A, B, C] = {
+    val finalized = Promise[C]()
+    val preparation = launchPreparedNotifying(executor, Some { (completed: TaskCompletion[A]) =>
+      try executor.execute(new Runnable {
+        override def run(): Unit = {
+          try finalized.success(finish(completed)) catch {
+            case error: Throwable => finalized.tryFailure(error)
+          }
+          ()
+        }
+      }) catch {
+        case NonFatal(rejection) => finalized.tryFailure(rejection)
+      }
+      ()
+    })(work)(prepare)(publish)
+    new FinalizedTask(preparation, finalized.future)
+  }
+
   /** Prepare an admitted result inside its runtime and retain it before publishing graph changes. A publication failure
     * cannot hide a resource that preparation already returned; suppressed or refused work never reaches preparation.
     *
@@ -38,9 +71,13 @@ final class TaskScope private[airstream] (runtime: Runtime) {
     */
   def launchPrepared[A, B](executor: ExecutionContext)(work: CancelSignal => A)(prepare: Try[A] => B)(
     publish: Try[B] => Unit
-  ): PreparedTask[A, B] = {
+  ): PreparedTask[A, B] = launchPreparedNotifying(executor, None)(work)(prepare)(publish)
+
+  private def launchPreparedNotifying[A, B](executor: ExecutionContext, notify: Option[TaskCompletion[A] => Unit])(
+    work: CancelSignal => A
+  )(prepare: Try[A] => B)(publish: Try[B] => Unit): PreparedTask[A, B] = {
     val prepared = Promise[Try[B]]()
-    val computation = launchResult(executor)(work) { input =>
+    val computation = launchResultNotifying(executor, notify)(work) { input =>
       val value = try Try(prepare(input)) catch {
         case error: Throwable =>
           prepared.trySuccess(Failure(error))
@@ -65,9 +102,15 @@ final class TaskScope private[airstream] (runtime: Runtime) {
     * @param deliver callback run only when the scope admits the result
     * @return the managed task and completion metadata; the result is absent when work never ran
     */
-  def launchResult[A](executor: ExecutionContext)(work: CancelSignal => A)(deliver: Try[A] => Unit): ManagedResult[A] = {
+  def launchResult[A](executor: ExecutionContext)(work: CancelSignal => A)(deliver: Try[A] => Unit): ManagedResult[A] =
+    launchResultNotifying(executor, None)(work)(deliver)
+
+  private def launchResultNotifying[A](executor: ExecutionContext, notify: Option[TaskCompletion[A] => Unit])(
+    work: CancelSignal => A
+  )(deliver: Try[A] => Unit): ManagedResult[A] = {
     val computed = Promise[Try[A]]()
-    val task = launch(executor) { signal =>
+    val callback = notify.map(handler => (outcome: TaskOutcome) => handler(TaskCompletion(outcome, computed.future.value.flatMap(_.toOption))))
+    val task = launchNotifying(executor, callback) { signal =>
       val result = Try(work(signal))
       computed.success(result)
       result.get
@@ -94,8 +137,13 @@ final class TaskScope private[airstream] (runtime: Runtime) {
     * @return the task, whose outcome settles once: `Delivered` or `Failed` when the result reached `deliver`, `Suppressed`
     *   when the scope moved on or closed first, `Rejected` when the scope, the executor or the runtime refused the task
     */
-  def launch[A](executor: ExecutionContext)(work: CancelSignal => A)(deliver: Try[A] => Unit): ManagedTask = runtime.run {
-    val task = new ManagedTask(runtime.nextTaskId())
+  def launch[A](executor: ExecutionContext)(work: CancelSignal => A)(deliver: Try[A] => Unit): ManagedTask =
+    launchNotifying(executor, None)(work)(deliver)
+
+  private def launchNotifying[A](executor: ExecutionContext, notify: Option[TaskOutcome => Unit])(
+    work: CancelSignal => A
+  )(deliver: Try[A] => Unit): ManagedTask = runtime.run {
+    val task = new ManagedTask(runtime.nextTaskId(), notify)
     if (!open) {
       task.settle(TaskOutcome.Rejected(SubmissionRejected(runtime, "the task scope is closed")))
     } else {
@@ -219,6 +267,19 @@ final class PreparedTask[+A, +B] private[airstream] (
   val prepared: Future[Option[Try[B]]]
 )
 
+/** Retain completion handling independently of graph observation, so cleanup can finish after the runtime closes.
+  *
+  * @tparam A external computation result
+  * @tparam B prepared value
+  * @tparam C completion handling result
+  * @param preparation computation and admitted preparation metadata
+  * @param finalized completion handling result or failure after its executor job finishes
+  */
+final class FinalizedTask[+A, +B, +C] private[airstream] (
+  val preparation: PreparedTask[A, B],
+  val finalized: Future[C]
+)
+
 /** Report what a task computed and how its scope handled delivery. A missing result means work never ran.
   *
   * @tparam A the computation's result
@@ -234,8 +295,12 @@ trait CancelSignal {
   def isCancelRequested: Boolean
 }
 
-/** One task launched in a [[TaskScope]]: its id, never reused within its runtime, and how it ended. */
-final class ManagedTask private[airstream] (val id: Long) extends CancelSignal {
+/** One task launched in a [[TaskScope]]: its id, never reused within its runtime, and how it ended.
+  *
+  * @param id identifier unique within the runtime
+  * @param onSettled optional internal notification invoked only by the first outcome settlement
+  */
+final class ManagedTask private[airstream] (val id: Long, onSettled: Option[TaskOutcome => Unit] = None) extends CancelSignal {
 
   /** Raised by the runtime, read by the computation on its own thread. */
   private val cancelRequested: AtomicFlag = new AtomicFlag
@@ -250,7 +315,7 @@ final class ManagedTask private[airstream] (val id: Long) extends CancelSignal {
   private[core] def requestCancel(): Unit = cancelRequested.set(true)
 
   private[core] def settle(outcome: TaskOutcome): Unit = {
-    settled.trySuccess(outcome)
+    if (settled.trySuccess(outcome)) onSettled.foreach(_(outcome))
     ()
   }
 }
