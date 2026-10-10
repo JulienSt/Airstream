@@ -25,6 +25,28 @@ import scala.util.control.NonFatal
   */
 final class TaskScope private[airstream] (runtime: Runtime) {
 
+  /** Retain a computation's value together with its delivery outcome, including when its runtime cannot accept it.
+    * This lets callers finish releasing resources after the graph has closed without rerunning the computation.
+    *
+    * @tparam A the computation's result
+    * @param executor caller-owned executor that runs the computation
+    * @param work computation whose returned value or failure is retained
+    * @param deliver callback run only when the scope admits the result
+    * @return the managed task and completion metadata; the result is absent when work never ran
+    */
+  def launchResult[A](executor: ExecutionContext)(work: CancelSignal => A)(deliver: Try[A] => Unit): ManagedResult[A] = {
+    val computed = Promise[Try[A]]()
+    val task = launch(executor) { signal =>
+      val result = Try(work(signal))
+      computed.success(result)
+      result.get
+    }(deliver)
+    val completed = task.outcome.map { outcome =>
+      TaskCompletion(outcome, computed.future.value.flatMap(_.toOption))
+    }(ExecutionContext.parasitic)
+    new ManagedResult(task, completed)
+  }
+
   // Runtime state, touched only under the permit.
 
   /** The current generation; a task carries the one it was launched in. 64-bit and never reused. */
@@ -142,6 +164,25 @@ final class TaskScope private[airstream] (runtime: Runtime) {
     }
   }
 }
+
+/** Retain a task's computation independently of its graph delivery, so refused or suppressed resources remain reportable.
+  *
+  * @tparam A the computation's result
+  * @param task the task's cancellation handle and delivery outcome
+  * @param completed computation metadata once the delivery outcome has settled
+  */
+final class ManagedResult[+A] private[airstream] (
+  val task: ManagedTask,
+  val completed: Future[TaskCompletion[A]]
+)
+
+/** Report what a task computed and how its scope handled delivery. A missing result means work never ran.
+  *
+  * @tparam A the computation's result
+  * @param outcome the task's delivery classification
+  * @param result the returned value or computation failure, when work ran
+  */
+final case class TaskCompletion[+A](outcome: TaskOutcome, result: Option[Try[A]])
 
 /** What a managed computation may poll to learn that nobody wants its result any more. */
 trait CancelSignal {

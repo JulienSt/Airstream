@@ -31,6 +31,14 @@ class FirstFutureSpec extends UnitSpec {
     owner.killSubscriptions()
   }
 
+  it("handles a source that emits while its observation starts") {
+    val owner = new ManualOwner
+    val result = EventStream.fromSeq(Vector(42, 43)).firstFuture()(using owner)
+    result.value shouldBe Some(Success(42))
+    owner.killSubscriptions()
+    result.value shouldBe Some(Success(42))
+  }
+
   it("settles cancellation and detaches when its owner ends before an event") {
     val owner = new ManualOwner
     val bus = new EventBus[Int]
