@@ -25,6 +25,37 @@ import scala.util.control.NonFatal
   */
 final class TaskScope private[airstream] (runtime: Runtime) {
 
+  /** Prepare an admitted result inside its runtime and retain it before publishing graph changes. A publication failure
+    * cannot hide a resource that preparation already returned; suppressed or refused work never reaches preparation.
+    *
+    * @tparam A external computation result
+    * @tparam B prepared value retained independently of publication
+    * @param executor caller-owned executor for external work
+    * @param work computation run outside the graph
+    * @param prepare create the value inside the admitted delivery turn
+    * @param publish apply the prepared value or preparation failure inside that same turn
+    * @return computation metadata and the preparation result, absent when delivery was suppressed or refused
+    */
+  def launchPrepared[A, B](executor: ExecutionContext)(work: CancelSignal => A)(prepare: Try[A] => B)(
+    publish: Try[B] => Unit
+  ): PreparedTask[A, B] = {
+    val prepared = Promise[Try[B]]()
+    val computation = launchResult(executor)(work) { input =>
+      val value = try Try(prepare(input)) catch {
+        case error: Throwable =>
+          prepared.trySuccess(Failure(error))
+          throw error
+      }
+      prepared.success(value)
+      publish(value)
+    }
+    val completed: Future[Option[Try[B]]] = computation.task.outcome.flatMap {
+      case TaskOutcome.Delivered | _: TaskOutcome.Failed => prepared.future.map(Some(_))(ExecutionContext.parasitic)
+      case _ => Future.successful(None)
+    }(ExecutionContext.parasitic)
+    new PreparedTask(computation, completed)
+  }
+
   /** Retain a computation's value together with its delivery outcome, including when its runtime cannot accept it.
     * This lets callers finish releasing resources after the graph has closed without rerunning the computation.
     *
@@ -174,6 +205,18 @@ final class TaskScope private[airstream] (runtime: Runtime) {
 final class ManagedResult[+A] private[airstream] (
   val task: ManagedTask,
   val completed: Future[TaskCompletion[A]]
+)
+
+/** Preserve preparation before publication, allowing cleanup after a publication error closes or fails the runtime.
+  *
+  * @tparam A external computation result
+  * @tparam B value produced inside the delivery turn
+  * @param computation external work and its delivery classification
+  * @param prepared preparation value or failure, absent if the scope never admitted delivery
+  */
+final class PreparedTask[+A, +B] private[airstream] (
+  val computation: ManagedResult[A],
+  val prepared: Future[Option[Try[B]]]
 )
 
 /** Report what a task computed and how its scope handled delivery. A missing result means work never ran.
