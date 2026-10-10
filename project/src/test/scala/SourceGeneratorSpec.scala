@@ -1,5 +1,6 @@
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
+import java.nio.file.attribute.FileTime
 import java.util.concurrent.{CountDownLatch, TimeUnit}
 import java.util.concurrent.atomic.AtomicReference
 
@@ -9,6 +10,29 @@ object SourceGeneratorSpec {
   def main(args: Array[String]): Unit = {
     preservesCompleteOutputWhileGenerating()
     println("SourceGenerator: complete output remains visible during generation")
+    keepsUnchangedOutputTimestamp()
+    println("SourceGenerator: identical output keeps its existing timestamp")
+  }
+
+  private def keepsUnchangedOutputTimestamp(): Unit = {
+    val directory = Files.createTempDirectory("airstream-generator-test-")
+    val output = directory.resolve("Generated.scala")
+    def generate(): Unit = {
+      new SourceGenerator(output.toFile) {
+        override protected def apply(): Unit = line("object Generated {}")
+      }.run
+    }
+    try {
+      generate()
+      val previousTime = FileTime.fromMillis(123456789000L)
+      Files.setLastModifiedTime(output, previousTime)
+      generate()
+      assert(Files.getLastModifiedTime(output) == previousTime,
+        "Identical generated content changed its timestamp and invalidated compiler products")
+    } finally {
+      Files.deleteIfExists(output)
+      Files.deleteIfExists(directory)
+    }
   }
 
   private def preservesCompleteOutputWhileGenerating(): Unit = {

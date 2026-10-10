@@ -13,15 +13,18 @@ abstract class SourceGenerator(outputFile: File) {
   /** Override this to implement the generator. */
   protected def apply(): Unit
 
-  /** Publish complete output atomically, so parallel platform compilers never read a half-written source file. */
+  /** Publish changed output atomically, so compilers never read partial sources or recompile unchanged generated files. */
   final def run: List[File] = {
     try apply() finally printStream.close()
-    outputFile.getParentFile.mkdirs()
-    val temporary = Files.createTempFile(outputFile.getParentFile.toPath, outputFile.getName, ".tmp")
-    try {
-      Files.write(temporary, generatedBytes.toByteArray)
-      Files.move(temporary, outputFile.toPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-    } finally Files.deleteIfExists(temporary)
+    val contents = generatedBytes.toByteArray
+    if (!outputFile.isFile || !java.util.Arrays.equals(Files.readAllBytes(outputFile.toPath), contents)) {
+      outputFile.getParentFile.mkdirs()
+      val temporary = Files.createTempFile(outputFile.getParentFile.toPath, outputFile.getName, ".tmp")
+      try {
+        Files.write(temporary, contents)
+        Files.move(temporary, outputFile.toPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+      } finally Files.deleteIfExists(temporary)
+    }
     List(outputFile)
   }
 
