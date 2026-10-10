@@ -208,6 +208,21 @@ final class Runtime private (
     */
   def submit(command: => Unit): Receipt = submitKeeping(0)(command)
 
+  /** Submit a value-producing command with the same admission and completion acknowledgement as [[submit]].
+    *
+    * @tparam A value produced in this runtime's turn
+    * @param command computation whose result is retained for the caller
+    * @return the command receipt and its value after receipt completion
+    */
+  def submitResult[A](command: => A): ResultReceipt[A] = {
+    val value = Promise[A]()
+    val receipt = submit {
+      value.success(command)
+      ()
+    }
+    new ResultReceipt(receipt, receipt.completed.flatMap(_ => value.future)(ExecutionContext.parasitic))
+  }
+
   /** Submit while leaving `reservedSlots` mailbox slots available to producers that use a smaller reservation.
     * The same atomic capacity counter covers every producer; this changes admission only, never FIFO delivery.
     * A refused command has no effect and may be retried. Direct runtimes have no queue and run it as an ordinary submit.
