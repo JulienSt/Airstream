@@ -2,7 +2,7 @@ package com.raquo.airstream.core
 
 import com.raquo.airstream.UnitSpec
 import com.raquo.airstream.eventbus.EventBus
-import com.raquo.airstream.ownership.ManualOwner
+import com.raquo.airstream.ownership.{DynamicOwner, ManualOwner}
 
 import java.util.concurrent.CancellationException
 import scala.util.{Failure, Success}
@@ -47,5 +47,33 @@ class FirstFutureSpec extends UnitSpec {
     result.value.get.failed.get.isInstanceOf[CancellationException] shouldBe true
     bus.writer.onNext(42)
     result.value.get.failed.get.isInstanceOf[CancellationException] shouldBe true
+  }
+
+  it("starts with its dynamic owner's lifetime and retains the result across remount") {
+    val owner = new DynamicOwner(() => fail("ended owner used"))
+    val bus = new EventBus[Int]
+    val result = bus.events.firstFuture(owner)
+    bus.writer.onNext(41)
+    result.value shouldBe None
+    owner.activate()
+    bus.writer.onNext(42)
+    owner.deactivate()
+    owner.activate()
+    bus.writer.onNext(43)
+    result.value shouldBe Some(Success(42))
+    owner.deactivate()
+  }
+
+  it("retains cancellation when its dynamic owner remounts after ending the first observation") {
+    val owner = new DynamicOwner(() => fail("ended owner used"))
+    val bus = new EventBus[Int]
+    val result = bus.events.firstFuture(owner)
+    owner.activate()
+    owner.deactivate()
+    result.value.get.failed.get.isInstanceOf[CancellationException] shouldBe true
+    owner.activate()
+    bus.writer.onNext(42)
+    result.value.get.failed.get.isInstanceOf[CancellationException] shouldBe true
+    owner.deactivate()
   }
 }

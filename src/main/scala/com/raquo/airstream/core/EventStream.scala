@@ -12,7 +12,7 @@ import com.raquo.airstream.extensions._
 import com.raquo.airstream.javaflow.FlowPublisherStream
 import com.raquo.airstream.map.{MapOps, MapStream}
 import com.raquo.airstream.misc._
-import com.raquo.airstream.ownership.{ManualOwner, Owner, Subscription}
+import com.raquo.airstream.ownership.{DynamicOwner, DynamicSubscription, ManualOwner, Owner, Subscription}
 import com.raquo.airstream.platform.{JsArray, JsCallback, PlatformCallbacks}
 import com.raquo.airstream.scan.{ScanLeftSignal, ScanLeftStreamOps}
 import com.raquo.airstream.split.SplittableOneStream
@@ -49,6 +49,22 @@ with EventStreamInstancePlatformOps[A] // dynamicImport on platforms that provid
     addObserver(Observer.fromTry[A] { event =>
       if (result.tryComplete(event)) lifetime.kill()
     })(using observation)
+    result.future
+  }
+
+  /** Observe the first event during the owner's next active lifetime. Unmounting before that event cancels the future;
+    * later mounts cannot replace a result or restart a cancelled observation.
+    *
+    * @param owner activates and ends the observation with its mount lifetime
+    * @return the first value, stream error, or cancellation from that lifetime
+    */
+  def firstFuture(owner: DynamicOwner): Future[A] = runtime.run {
+    val result = Promise[A]()
+    DynamicSubscription.subscribeCallback(owner, active => {
+      if (!result.isCompleted) {
+        firstFuture()(using active).onComplete(result.tryComplete)(ExecutionContext.parasitic)
+      }
+    })
     result.future
   }
 
