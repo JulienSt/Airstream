@@ -1,11 +1,10 @@
-import java.io.{File, FileOutputStream, PrintStream}
+import java.io.{ByteArrayOutputStream, File, PrintStream}
+import java.nio.file.{Files, StandardCopyOption}
 
 abstract class SourceGenerator(outputFile: File) {
 
-  private lazy val printStream = {
-    outputFile.getParentFile.mkdirs()
-    new PrintStream(new FileOutputStream(outputFile))
-  }
+  private val generatedBytes = new ByteArrayOutputStream
+  private val printStream = new PrintStream(generatedBytes, false, "UTF-8")
 
   private val indentStep = "  "
 
@@ -14,10 +13,15 @@ abstract class SourceGenerator(outputFile: File) {
   /** Override this to implement the generator. */
   protected def apply(): Unit
 
-  /** Call this to run the generator. */
+  /** Publish complete output atomically, so parallel platform compilers never read a half-written source file. */
   final def run: List[File] = {
-    apply()
-    printStream.close()
+    try apply() finally printStream.close()
+    outputFile.getParentFile.mkdirs()
+    val temporary = Files.createTempFile(outputFile.getParentFile.toPath, outputFile.getName, ".tmp")
+    try {
+      Files.write(temporary, generatedBytes.toByteArray)
+      Files.move(temporary, outputFile.toPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+    } finally Files.deleteIfExists(temporary)
     List(outputFile)
   }
 
