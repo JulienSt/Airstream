@@ -25,6 +25,41 @@ import scala.util.control.NonFatal
   */
 final class TaskScope private[airstream] (runtime: Runtime) {
 
+  /** Retain preparation and publication results for cleanup after graph delivery has ended.
+    * Completion handling can distinguish a resource that reached its owner from one that still needs releasing, even when
+    * preparation or publication fails or the runtime refuses the result.
+    *
+    * @tparam A external computation result
+    * @tparam B prepared value retained before publication
+    * @tparam P publication result recording what the receiving owner accepted
+    * @tparam C completion handling result
+    * @param executor caller-owned executor for work and completion handling
+    * @param work external computation
+    * @param prepare create an admitted value inside the delivery turn
+    * @param publish apply the preparation result and return its publication result
+    * @param finish handle the retained results once on the executor after delivery ends
+    * @return preparation metadata and the completion handling result
+    */
+  def launchFinalizedWithPublication[A, B, P, C](executor: ExecutionContext)(work: CancelSignal => A)(prepare: Try[A] => B)(
+    publish: Try[B] => P
+  )(finish: TaskFinalization[A, B, P] => C): FinalizedTask[A, B, C] = {
+    val finalized = Promise[C]()
+    val preparation = launchPreparedNotifying[A, B, P](executor, Some { completed =>
+      try executor.execute(new Runnable {
+        override def run(): Unit = {
+          try finalized.success(finish(completed)) catch {
+            case error: Throwable => finalized.tryFailure(error)
+          }
+          ()
+        }
+      }) catch {
+        case NonFatal(rejection) => finalized.tryFailure(rejection)
+      }
+      ()
+    })(work)(prepare)(publish)
+    new FinalizedTask(preparation, finalized.future)
+  }
+
   /** Schedule completion handling on the caller's executor after the task settles, including suppressed or refused delivery.
     * The returned future retains its result or failure so a caller can wait for cleanup before releasing that executor.
     *
@@ -40,23 +75,8 @@ final class TaskScope private[airstream] (runtime: Runtime) {
     */
   def launchFinalized[A, B, C](executor: ExecutionContext)(work: CancelSignal => A)(prepare: Try[A] => B)(
     publish: Try[B] => Unit
-  )(finish: TaskCompletion[A] => C): FinalizedTask[A, B, C] = {
-    val finalized = Promise[C]()
-    val preparation = launchPreparedNotifying(executor, Some { (completed: TaskCompletion[A]) =>
-      try executor.execute(new Runnable {
-        override def run(): Unit = {
-          try finalized.success(finish(completed)) catch {
-            case error: Throwable => finalized.tryFailure(error)
-          }
-          ()
-        }
-      }) catch {
-        case NonFatal(rejection) => finalized.tryFailure(rejection)
-      }
-      ()
-    })(work)(prepare)(publish)
-    new FinalizedTask(preparation, finalized.future)
-  }
+  )(finish: TaskCompletion[A] => C): FinalizedTask[A, B, C] =
+    launchFinalizedWithPublication(executor)(work)(prepare)(publish)(completed => finish(completed.completion))
 
   /** Prepare an admitted result inside its runtime and retain it before publishing graph changes. A publication failure
     * cannot hide a resource that preparation already returned; suppressed or refused work never reaches preparation.
@@ -73,24 +93,33 @@ final class TaskScope private[airstream] (runtime: Runtime) {
     publish: Try[B] => Unit
   ): PreparedTask[A, B] = launchPreparedNotifying(executor, None)(work)(prepare)(publish)
 
-  private def launchPreparedNotifying[A, B](executor: ExecutionContext, notify: Option[TaskCompletion[A] => Unit])(
+  private def launchPreparedNotifying[A, B, P](executor: ExecutionContext, notify: Option[TaskFinalization[A, B, P] => Unit])(
     work: CancelSignal => A
-  )(prepare: Try[A] => B)(publish: Try[B] => Unit): PreparedTask[A, B] = {
+  )(prepare: Try[A] => B)(publish: Try[B] => P): PreparedTask[A, B] = {
     val prepared = Promise[Try[B]]()
-    val computation = launchResultNotifying(executor, notify)(work) { input =>
-      val value = try Try(prepare(input)) catch {
-        case error: Throwable =>
-          prepared.trySuccess(Failure(error))
-          throw error
-      }
-      prepared.success(value)
-      publish(value)
+    val published = Promise[Try[P]]()
+    val callback = notify.map { handler => (completion: TaskCompletion[A]) =>
+      handler(TaskFinalization(completion, prepared.future.value.flatMap(_.toOption), published.future.value.flatMap(_.toOption)))
+    }
+    val computation = launchResultNotifying(executor, callback)(work) { input =>
+      val value = retainAttempt(prepared)(prepare(input))
+      retainAttempt(published)(publish(value)).get
     }
     val completed: Future[Option[Try[B]]] = computation.task.outcome.flatMap {
       case TaskOutcome.Delivered | _: TaskOutcome.Failed => prepared.future.map(Some(_))(ExecutionContext.parasitic)
       case _ => Future.successful(None)
     }(ExecutionContext.parasitic)
     new PreparedTask(computation, completed)
+  }
+
+  private def retainAttempt[A](target: Promise[Try[A]])(attempt: => A): Try[A] = {
+    val value = try Try(attempt) catch {
+      case error: Throwable =>
+        target.trySuccess(Failure(error))
+        throw error
+    }
+    target.success(value)
+    value
   }
 
   /** Retain a computation's value together with its delivery outcome, including when its runtime cannot accept it.
@@ -290,6 +319,23 @@ final class FinalizedTask[+A, +B, +C] private[airstream] (
   * @param result the returned value or computation failure, when work ran
   */
 final case class TaskCompletion[+A](outcome: TaskOutcome, result: Option[Try[A]])
+
+/** Keep all results needed to finish a resource acquisition without sampling a closed graph.
+  * Preparation and publication are absent when the result was never admitted; each attempted stage retains its value or
+  * original failure before completion handling runs.
+  *
+  * @tparam A external computation result
+  * @tparam B prepared value
+  * @tparam P publication result
+  * @param completion external result and delivery outcome
+  * @param prepared preparation result, absent when preparation never ran
+  * @param published publication result, absent when publication never ran
+  */
+final case class TaskFinalization[+A, +B, +P](
+  completion: TaskCompletion[A],
+  prepared: Option[Try[B]],
+  published: Option[Try[P]]
+)
 
 /** What a managed computation may poll to learn that nobody wants its result any more. */
 trait CancelSignal {

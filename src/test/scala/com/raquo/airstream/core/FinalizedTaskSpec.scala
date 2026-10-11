@@ -7,6 +7,83 @@ import scala.concurrent.ExecutionContext
 import scala.util.{Failure, Success}
 
 class FinalizedTaskSpec extends UnitSpec {
+  it("retains fatal preparation without inventing a publication result") {
+    val commands = new ManualExecutor
+    val runtime = Runtime.dispatched(commands)
+    val problem = new LinkageError("preparation failed before publication")
+    runtime.unregisterUnhandledErrorCallback(AirstreamError.consoleErrorCallback)
+    try {
+      val submitted = runtime.submitResult {
+        runtime.taskScope().launchFinalizedWithPublication[Int, Int, Boolean, TaskFinalization[Int, Int, Boolean]](
+          ExecutionContext.parasitic
+        )(_ => 41)(_ => throw problem)(_ => fail("fatal preparation must not be published"))(identity)
+      }
+      commands.runAll()
+      val task = submitted.result.value.get.get
+      task.finalized.value shouldBe Some(Success(TaskFinalization(
+        TaskCompletion(TaskOutcome.Delivered, Some(Success(41))),
+        Some(Failure(problem)),
+        None
+      )))
+      runtime.state shouldBe RuntimeState.Failed
+    } finally {
+      runtime.close()
+      commands.runAll()
+    }
+  }
+
+  it("retains suppressed work without preparation or publication") {
+    val commands = new ManualExecutor
+    val workers = new ManualExecutor
+    val runtime = Runtime.dispatched(commands)
+    try {
+      val submitted = runtime.submitResult {
+        val scope = runtime.taskScope()
+        val task = scope.launchFinalizedWithPublication(workers)(_ => 41)(
+          _ => fail("suppressed work must not prepare")
+        )(_ => fail("suppressed work must not publish"))(identity)
+        scope.close()
+        task
+      }
+      commands.runAll()
+      val task = submitted.result.value.get.get
+      workers.runAll()
+      commands.runAll()
+      workers.runAll()
+      task.finalized.value shouldBe Some(Success(TaskFinalization(
+        TaskCompletion(TaskOutcome.Suppressed, Some(Success(41))), None, None
+      )))
+    } finally {
+      runtime.close()
+      commands.runAll()
+    }
+  }
+
+  it("retains prepared resources and publication failure for inline completion handling") {
+    val commands = new ManualExecutor
+    val runtime = Runtime.dispatched(commands)
+    val problem = new LinkageError("publication failed after the resource was prepared")
+    runtime.unregisterUnhandledErrorCallback(AirstreamError.consoleErrorCallback)
+    try {
+      val submitted = runtime.submitResult {
+        runtime.taskScope().launchFinalizedWithPublication(ExecutionContext.parasitic)(_ => 41)(_.get + 1) { _ =>
+          throw problem
+        }(identity)
+      }
+      commands.runAll()
+      val task = submitted.result.value.get.get
+      task.finalized.value shouldBe Some(Success(TaskFinalization(
+        TaskCompletion(TaskOutcome.Delivered, Some(Success(41))),
+        Some(Success(42)),
+        Some(Failure(problem))
+      )))
+      runtime.state shouldBe RuntimeState.Failed
+    } finally {
+      runtime.close()
+      commands.runAll()
+    }
+  }
+
   it("finishes admitted work after preparation and publication with an inline executor") {
     val commands = new ManualExecutor
     val runtime = Runtime.dispatched(commands)
