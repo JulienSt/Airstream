@@ -7,6 +7,38 @@ import scala.concurrent.ExecutionContext
 import scala.util.{Failure, Success}
 
 class FinalizedTaskSpec extends UnitSpec {
+  it("finishes admitted work after preparation and publication with an inline executor") {
+    val commands = new ManualExecutor
+    val runtime = Runtime.dispatched(commands)
+    val phases = scala.collection.mutable.Buffer[String]()
+    val workers = new ExecutionContext {
+      override def execute(command: Runnable): Unit = command.run()
+      override def reportFailure(error: Throwable): Unit = fail("unexpected executor failure", error)
+    }
+    try {
+      val submitted = runtime.submitResult {
+        runtime.taskScope().launchFinalized(workers)(_ => 41) { input =>
+          phases += "prepare"
+          input.get + 1
+        } { prepared =>
+          prepared shouldBe Success(42)
+          phases += "publish"
+        } { completed =>
+          phases += "finish"
+          completed
+        }
+      }
+      commands.runAll()
+      val task = submitted.result.value.get.get
+      phases.toList shouldBe List("prepare", "publish", "finish")
+      task.finalized.value shouldBe Some(Success(TaskCompletion(TaskOutcome.Delivered, Some(Success(41)))))
+      task.preparation.prepared.value shouldBe Some(Success(Some(Success(42))))
+    } finally {
+      runtime.close()
+      commands.runAll()
+    }
+  }
+
   it("finishes suppressed work on its executor after the runtime closes") {
     val commands = new ManualExecutor
     val workers = new ManualExecutor

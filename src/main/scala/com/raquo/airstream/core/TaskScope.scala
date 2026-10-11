@@ -221,14 +221,17 @@ final class TaskScope private[airstream] (runtime: Runtime) {
     if (open && launchedIn == generation) {
       forget(task)
       runtime.traceTaskDelivered(task.id)
-      task.settle(result match {
+      val outcome = result match {
         case Success(_) => TaskOutcome.Delivered
         case Failure(err) => TaskOutcome.Failed(err)
-      })
+      }
       try {
         deliver(result)
       } catch {
         case NonFatal(err) => runtime.sendUnhandledError(err)
+      } finally {
+        // Completion handling can run inline: retain prepared resources and finish publication before handing them to cleanup.
+        task.settle(outcome)
       }
     } else {
       runtime.traceTaskSuppressed(task.id)
