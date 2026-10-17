@@ -34,11 +34,9 @@ Run `python3 scripts/check_platform_boundaries.py` before submitting a cross-pla
 rejects runtime platform probes and direct Scala.js or Scala Native APIs in shared production sources.
 
 The fork currently includes upstream `aa6818b7f523244f5abab29e4b56136fcc31183b`.
-`python3 scripts/check_js_regression.py` compares both Scala.js versions and the
-optimized consumer against that unmodified upstream commit. After merging a new
-upstream revision, update this baseline in both checkers and review the new diff
-before changing its recorded budgets. Merge commits do not count as new port
-implementation commits.
+`python3 scripts/check_js_regression.py` runs the Scala.js tests and checks that an
+optimized minimal consumer is no more than 1% larger than with that unmodified
+upstream commit. After merging a new upstream revision, update `BASELINE_COMMIT` there.
 
 Run `python3 scripts/check_external_build.py` to verify that another sbt build can
 load the Native project through `ProjectRef` without receiving formatter downloads.

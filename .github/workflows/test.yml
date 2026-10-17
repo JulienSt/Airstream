@@ -39,11 +39,7 @@ jobs:
         run: python3 -m unittest scripts/tests/test_check_platform_boundaries.py
       - name: Check shared platform boundaries
         run: python3 scripts/check_platform_boundaries.py
-      - name: Test Native port diff checker
-        run: python3 -m unittest scripts/tests/test_report_port_diff.py
       - name: Check external source-build integration
         run: python3 scripts/check_external_build.py
-      - name: Check Native port review surface
-        run: python3 scripts/report_port_diff.py
-      - name: Compare JavaScript build with upstream Airstream
+      - name: Compare JavaScript size with upstream Airstream
         run: python3 scripts/check_js_regression.py

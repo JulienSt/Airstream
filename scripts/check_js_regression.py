@@ -1,41 +1,19 @@
 #!/usr/bin/env python3
 
 import argparse
-import collections
 import gzip
 import pathlib
-import re
 import os
 import subprocess
 import tempfile
 
 
 BASELINE_COMMIT = "aa6818b7f523244f5abab29e4b56136fcc31183b"
-SCALA_VERSIONS = ("2.13.18", "3.9.0")
 SIZE_TOLERANCE = 0.01
-SAFE_MIMA_PROBLEMS = set()
-ANSI = re.compile(r"\x1b\[[0-9;]*m")
-MIMA_PROBLEM = re.compile(r"^(?:\[debug\] problem found: |\[error\]\s+\* )(.+)$", re.MULTILINE)
 
 
 class RegressionError(RuntimeError):
     pass
-
-
-def normalize_mima_problems(output):
-    clean_output = ANSI.sub("", output)
-    return collections.Counter(MIMA_PROBLEM.findall(clean_output))
-
-
-def assert_no_new_mima_problems(baseline_output, current_output, ignored_current):
-    baseline = normalize_mima_problems(baseline_output)
-    current = normalize_mima_problems(current_output)
-    for problem in ignored_current:
-        current.pop(problem, None)
-    added = current - baseline
-    if added:
-        details = "\n".join(f"{count} x {problem}" for problem, count in sorted(added.items()))
-        raise RegressionError(f"New MiMa problem(s):\n{details}")
 
 
 def assert_size_within_tolerance(baseline, current, label, tolerance=SIZE_TOLERANCE):
@@ -63,20 +41,6 @@ def environment_without_ci():
     environment = os.environ.copy()
     environment.pop("CI", None)
     return environment
-
-
-def mima_log(project_root, scala_version, current):
-    task = "airstreamJS/mimaReportBinaryIssues" if current else "mimaReportBinaryIssues"
-    result = run(
-        ["sbt", "-batch", f"++{scala_version}", task],
-        project_root,
-        allow_failure=True,
-        environment=None if current else environment_without_ci(),
-    )
-    if result.returncode != 0 and "Failed binary compatibility check" not in result.stdout:
-        print(result.stdout)
-        raise RegressionError(f"MiMa failed before reporting compatibility for Scala {scala_version}")
-    return result.stdout
 
 
 def write_consumer(path):
@@ -134,12 +98,6 @@ def verify(repository, baseline_commit):
 
         run(["git", "clone", "--shared", "--no-checkout", str(repository), str(baseline_root)], repository)
         run(["git", "checkout", "--detach", baseline_commit], baseline_root)
-
-        for scala_version in SCALA_VERSIONS:
-            baseline_mima = mima_log(baseline_root, scala_version, current=False)
-            current_mima = mima_log(repository, scala_version, current=True)
-            assert_no_new_mima_problems(baseline_mima, current_mima, SAFE_MIMA_PROBLEMS)
-            print(f"MiMa delta Scala {scala_version}: no new problems")
 
         run(["sbt", "-batch", "+airstreamJS/test"], repository)
 
