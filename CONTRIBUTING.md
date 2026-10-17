@@ -33,7 +33,7 @@ existed.
 Run `python3 scripts/check_platform_boundaries.py` before submitting a cross-platform change. The check
 rejects runtime platform probes and direct Scala.js or Scala Native APIs in shared production sources.
 
-The fork currently includes upstream `71af1572b7730ab49acb8358ee2b5abe77dc2e45`.
+The fork currently includes upstream `aa6818b7f523244f5abab29e4b56136fcc31183b`.
 `python3 scripts/check_js_regression.py` compares both Scala.js versions and the
 optimized consumer against that unmodified upstream commit. After merging a new
 upstream revision, update this baseline in both checkers and review the new diff

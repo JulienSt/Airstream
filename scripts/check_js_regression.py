@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 
 
-BASELINE_COMMIT = "71af1572b7730ab49acb8358ee2b5abe77dc2e45"
+BASELINE_COMMIT = "aa6818b7f523244f5abab29e4b56136fcc31183b"
 SCALA_VERSIONS = ("2.13.18", "3.9.0")
 SIZE_TOLERANCE = 0.01
 SAFE_MIMA_PROBLEMS = set()

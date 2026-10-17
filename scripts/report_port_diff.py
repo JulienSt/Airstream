@@ -9,7 +9,7 @@ import subprocess
 from typing import NamedTuple, Sequence
 
 
-BASELINE_COMMIT = "71af1572b7730ab49acb8358ee2b5abe77dc2e45"
+BASELINE_COMMIT = "aa6818b7f523244f5abab29e4b56136fcc31183b"
 MECHANICAL_COMMITS = frozenset({"cfcc346"})
 # Reviewed against the upstream baseline below. New shared adaptations are
 # CustomStreamSource, ScanLeftSignal and JsResilientIterator; Owner now matches
