@@ -91,7 +91,7 @@ final class TaskScope private[airstream] (runtime: Runtime) {
     */
   def launchPrepared[A, B](executor: ExecutionContext)(work: CancelSignal => A)(prepare: Try[A] => B)(
     publish: Try[B] => Unit
-  ): PreparedTask[A, B] = launchPreparedNotifying(executor, None)(work)(prepare)(publish)
+  ): PreparedTask[A, B] = launchPreparedNotifying[A, B, Unit](executor, None)(work)(prepare)(publish)
 
   private def launchPreparedNotifying[A, B, P](executor: ExecutionContext, notify: Option[TaskFinalization[A, B, P] => Unit])(
     work: CancelSignal => A
@@ -132,7 +132,7 @@ final class TaskScope private[airstream] (runtime: Runtime) {
     * @return the managed task and completion metadata; the result is absent when work never ran
     */
   def launchResult[A](executor: ExecutionContext)(work: CancelSignal => A)(deliver: Try[A] => Unit): ManagedResult[A] =
-    launchResultNotifying(executor, None)(work)(deliver)
+    launchResultNotifying[A](executor, None)(work)(deliver)
 
   private def launchResultNotifying[A](executor: ExecutionContext, notify: Option[TaskCompletion[A] => Unit])(
     work: CancelSignal => A

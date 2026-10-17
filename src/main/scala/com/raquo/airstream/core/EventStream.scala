@@ -39,7 +39,7 @@ with EventStreamInstancePlatformOps[A] // dynamicImport on platforms that provid
     * @param owner owns the observation until its first value or error
     * @return the first value, the first stream error, or cancellation when the owner ends first
     */
-  def firstFuture()(using owner: Owner): Future[A] = runtime.run {
+  def firstFuture()(implicit owner: Owner): Future[A] = runtime.run {
     val result = Promise[A]()
     val observation = new ManualOwner
     val lifetime = new Subscription(owner, () => {
