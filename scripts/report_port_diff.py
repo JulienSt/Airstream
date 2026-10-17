@@ -10,7 +10,7 @@ from typing import NamedTuple, Sequence
 
 
 BASELINE_COMMIT = "aa6818b7f523244f5abab29e4b56136fcc31183b"
-MECHANICAL_COMMITS = frozenset({"cfcc346"})
+MECHANICAL_COMMITS = frozenset({"5642b08"})
 # Reviewed against the upstream baseline below. New shared adaptations are
 # CustomStreamSource, ScanLeftSignal and JsResilientIterator; Owner now matches
 # upstream exactly. Merge commits are excluded from the historical metrics.
